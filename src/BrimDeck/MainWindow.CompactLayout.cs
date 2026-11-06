@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Shapes;
 using BrimDeck.Core;
 
 namespace BrimDeck;
@@ -89,11 +90,21 @@ public partial class MainWindow
         double font = Math.Max(1, CompactMusicLayout.Half(11.5 * scale)), line = Math.Max(1, CompactMusicLayout.Whole(16 * scale));
         if (alert.Water)
         {
+            double icon = Math.Max(12, CompactMusicLayout.Whole(16 * scale));
+            var cup = WaterCupIcon(icon);
+            cup.Margin = new Thickness(0, 0, Math.Max(4, CompactMusicLayout.Half(6 * scale)), 0);
             var text = UI.Fixed(alert.Name, font, line, UI.Primary, FontWeights.SemiBold);
-            text.HorizontalAlignment = HorizontalAlignment.Center;
-            text.TextAlignment = TextAlignment.Center;
-            text.Tag = AlertRegionTag;
-            CompactAlert.Children.Add(text);
+            text.VerticalAlignment = VerticalAlignment.Center;
+            var waterRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = AlertRegionTag
+            };
+            waterRow.Children.Add(cup);
+            waterRow.Children.Add(text);
+            CompactAlert.Children.Add(waterRow);
             return;
         }
         var entry = alert.Entry!;
@@ -129,13 +140,13 @@ public partial class MainWindow
             CompactAlert.Children.Add(stack);
             return;
         }
-        double row = Math.Max(layout.RingSize, layout.LineHeight);
+        double rowHeight = Math.Max(layout.RingSize, layout.LineHeight);
         var ring = UI.Ring(alert.Used, PanelTheme.QuotaTheme(entry), layout.RingSize, layout.RingThickness);
         var parts = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        if (layout.RingWidth > 0) parts.Children.Add(CompactRegion(ring, layout.RingWidth, layout.RingSize, layout.RingSize, row, RegionAnchor.Left, dpi));
-        if (layout.NameWidth > 0) parts.Children.Add(CompactRegion(name, layout.NameWidth, Math.Min(nameWidth, name.MaxWidth), line, row, RegionAnchor.Left, dpi));
-        if (layout.TextWidth > 0) parts.Children.Add(CompactRegion(used, layout.TextWidth, usedWidth, line, row, RegionAnchor.Left, dpi));
-        if (reset is not null && layout.ResetWidth > 0) parts.Children.Add(CompactRegion(reset, layout.ResetWidth, resetWidth, line, row, RegionAnchor.Left, dpi, layout.Gap));
+        if (layout.RingWidth > 0) parts.Children.Add(CompactRegion(ring, layout.RingWidth, layout.RingSize, layout.RingSize, rowHeight, RegionAnchor.Left, dpi));
+        if (layout.NameWidth > 0) parts.Children.Add(CompactRegion(name, layout.NameWidth, Math.Min(nameWidth, name.MaxWidth), line, rowHeight, RegionAnchor.Left, dpi));
+        if (layout.TextWidth > 0) parts.Children.Add(CompactRegion(used, layout.TextWidth, usedWidth, line, rowHeight, RegionAnchor.Left, dpi));
+        if (reset is not null && layout.ResetWidth > 0) parts.Children.Add(CompactRegion(reset, layout.ResetWidth, resetWidth, line, rowHeight, RegionAnchor.Left, dpi, layout.Gap));
         parts.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double span = SnapDown(width, dpi), full = parts.DesiredSize.Width;
         // The allowance keeps rounding noise from starting a one-pixel scroll.
@@ -145,8 +156,8 @@ public partial class MainWindow
         // with the translation and cut off the end that scrolls in.
         var shift = new TranslateTransform();
         parts.RenderTransform = shift;
-        var view = new Canvas { Width = span, Height = row, ClipToBounds = true, VerticalAlignment = VerticalAlignment.Center, Tag = AlertRegionTag };
-        Canvas.SetTop(parts, Snap((row - parts.DesiredSize.Height) / 2, dpi));
+        var view = new Canvas { Width = span, Height = rowHeight, ClipToBounds = true, VerticalAlignment = VerticalAlignment.Center, Tag = AlertRegionTag };
+        Canvas.SetTop(parts, Snap((rowHeight - parts.DesiredSize.Height) / 2, dpi));
         view.Children.Add(parts);
         RenderOptions.SetClearTypeHint(parts, ClearTypeHint.Enabled);
         CompactAlert.Children.Add(view);
@@ -163,6 +174,45 @@ public partial class MainWindow
         shift.ApplyAnimationClock(TranslateTransform.XProperty, clock);
         double elapsed = Math.Clamp((Environment.TickCount64 - _alertSince!.Value.Since) / 1000d, 0, shown);
         if (elapsed > 0) clock.Controller!.Seek(TimeSpan.FromSeconds(elapsed), TimeSeekOrigin.BeginTime);
+    }
+
+    // Tumbler with a blue water fill — sits beside the drink-water notice so it reads at a glance.
+    private static FrameworkElement WaterCupIcon(double size)
+    {
+        var glass = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M 3.2,2.2 L 4.4,13.2 Q 8,14.6 11.6,13.2 L 12.8,2.2 Z"),
+            Stroke = UI.Brush("#B8E0FF"),
+            StrokeThickness = 1.15,
+            StrokeLineJoin = PenLineJoin.Round,
+            Fill = Brushes.Transparent
+        };
+        var water = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M 4.55,7.2 L 5.05,12.6 Q 8,13.7 10.95,12.6 L 11.45,7.2 Q 8,8.1 4.55,7.2 Z"),
+            Fill = UI.Brush("#3D9EFF")
+        };
+        var shine = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M 5.2,3.4 L 5.55,6.2"),
+            Stroke = UI.Brush("#E8F6FF"),
+            StrokeThickness = 1.1,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            Opacity = .7
+        };
+        var canvas = new Canvas { Width = 16, Height = 16, IsHitTestVisible = false };
+        canvas.Children.Add(water);
+        canvas.Children.Add(glass);
+        canvas.Children.Add(shine);
+        return new Viewbox
+        {
+            Width = size,
+            Height = size,
+            Stretch = Stretch.Uniform,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = canvas
+        };
     }
 
     private enum RegionAnchor { Left, Center, Right }

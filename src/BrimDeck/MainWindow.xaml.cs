@@ -702,7 +702,17 @@ public partial class MainWindow : Window
         ScheduleWaterReminder();
     }
 
-    private CompactStyle EffectiveStyle => !_preview && Settings.Behavior(_context, _host.App.Name, _host.App.Path, _host.BackgroundKind) == WindowBehavior.Line ? CompactStyle.Line : Settings.Style;
+    // The indicator is too thin for a notice. While one is up, use the saved compact style (or the capsule if that is the
+    // indicator too), then return to the line when the notice clears (SetExpanded / RenderCompact).
+    private CompactStyle EffectiveStyle
+    {
+        get
+        {
+            bool forceLine = !_preview && Settings.Behavior(_context, _host.App.Name, _host.App.Path, _host.BackgroundKind) == WindowBehavior.Line;
+            if (forceLine && _alert is null) return CompactStyle.Line;
+            return Settings.Style == CompactStyle.Line ? CompactStyle.Capsule : Settings.Style;
+        }
+    }
     // One animated track: where it starts and ends, as fractions of the configured duration.
     private readonly record struct Track(double Start, double End);
     // The collapsed island at rest clips its content to a rectangle (IslandBorder.SettledClip): the content keeps clear of its
