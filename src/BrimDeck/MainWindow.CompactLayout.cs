@@ -107,7 +107,8 @@ public partial class MainWindow
             waterRow.Children.Add(text);
             CompactAlert.Children.Add(waterRow);
             waterRow.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            NoteAlertWidth(Math.Ceiling(waterRow.DesiredSize.Width * dpi - .001) / dpi);
+            // Twice the measured row: a little air on each side so the notice does not sit flush with the capsule ends.
+            NoteAlertWidth(2 * Math.Ceiling(waterRow.DesiredSize.Width * dpi - .001) / dpi);
             return;
         }
         var entry = alert.Entry!;
