@@ -331,6 +331,7 @@ public sealed partial class SettingsWindow
             ProviderId.OpenCodeGo => Loc.T("OpenCode Console API 密钥（oc_sk_…），加密保存在本机", "OpenCode Console API key (oc_sk_…), stored encrypted on this PC"),
             ProviderId.OpenRouter => Loc.T("OpenRouter API 密钥（sk-or-v1-…），加密保存在本机", "OpenRouter API key (sk-or-v1-…), stored encrypted on this PC"),
             ProviderId.Custom => Loc.T("可选，加密保存在本机", "Optional, stored encrypted on this PC"),
+            ProviderId.StoLlm => Loc.T("可选；留空则使用 sto-watt / dms-proxy 的 DevOps 登录", "Optional; leave empty to use sto-watt / dms-proxy DevOps sign-in"),
             _ => Loc.T("填写 API 密钥，加密保存在本机", "Enter the API key; it is stored encrypted on this PC")
         };
         string savedHint = Loc.T("已加密保存在本机，输入新密钥以更换", "Stored encrypted on this PC. Enter a new key to replace it");
@@ -404,7 +405,12 @@ public sealed partial class SettingsWindow
         }
         password.LostKeyboardFocus += (_, _) => { if (!swapping) SaveSecret(); };
         visible.LostKeyboardFocus += (_, _) => { if (!swapping) SaveSecret(); };
-        Line(entry.QuotaSource == ProviderId.Custom ? Loc.T("API 密钥（可选）", "API key (optional)") : Loc.T("API 密钥", "API key"), Field(inputs, keyHint, reveal));
+        Line(entry.QuotaSource switch
+        {
+            ProviderId.StoLlm => Loc.T("DevOps Token（可选）", "DevOps token (optional)"),
+            ProviderId.Custom => Loc.T("API 密钥（可选）", "API key (optional)"),
+            _ => Loc.T("API 密钥", "API key")
+        }, Field(inputs, keyHint, reveal));
 
         if (entry.QuotaSource == ProviderId.Custom)
         {

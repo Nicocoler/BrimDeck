@@ -14,6 +14,11 @@ public interface IProviderSecrets
     void Delete(Guid instanceId);
 }
 
+internal sealed class ProviderReadException(string label, string message) : Exception(message)
+{
+    public string Label { get; } = label;
+}
+
 public sealed record ProviderTestResult(ProviderSnapshot Snapshot, double Seconds, IReadOnlyList<string> Logs);
 
 internal sealed class ScriptSession(HttpClient http, AppEntry entry, string secret, DateTimeOffset now, CancellationToken cancellation, string? memory = null)
@@ -35,6 +40,7 @@ internal sealed class ScriptSession(HttpClient http, AppEntry entry, string secr
     {
         if (entry.QuotaSource == ProviderId.KimiApi) return await RunKimiAsync();
         if (entry.QuotaSource == ProviderId.OpenCodeGo) return await RunOpenCodeGoAsync();
+        if (entry.QuotaSource == ProviderId.StoLlm) return await RunStoLlmAsync();
         using var engine = new Engine(options =>
         {
             options.ExperimentalFeatures = ExperimentalFeature.TaskInterop;
@@ -215,6 +221,49 @@ internal sealed class ScriptSession(HttpClient http, AppEntry entry, string secr
         List<string> warnings = limited ? [t("已达到 OpenCode Go 的用量上限，重置前请求会被拒绝", "The OpenCode Go limit is reached; requests are refused until it resets.")] : [];
         return new(quotas.Select(UsageMetric.FromQuota).ToList(), "", "plan", [], warnings) { Source = "OpenCode Go" };
     }
+    private async Task<ProviderResult> RunStoLlmAsync()
+    {
+        string t(string zh, string en) => Loc.T(zh, en);
+        var nowUtc = now.ToUniversalTime();
+        async Task<string?> Bridge(int port) => await StoLlmAuth.FetchBridgeTokenAsync(http, port, cancellation);
+
+        var token = await StoLlmAuth.ResolveToken(secret, StoLlmAuth.DefaultStoWattHome, Bridge, nowUtc);
+        if (token is null)
+            throw new ProviderReadException(
+                t("未登录", "Not signed in"),
+                t("请打开 https://devops-new.sto.cn/ 登录，或安装并启动 sto-watt，也可在设置中粘贴 DevOps Token。",
+                  "Open https://devops-new.sto.cn/ and sign in, install and start sto-watt, or paste a DevOps token in settings."));
+
+        async Task<(int Status, string Body)> Post(string jwt)
+        {
+            var headers = StoLlmUsage.RequestHeaders(jwt);
+            using var reply = JsonDocument.Parse(await SendAsync("POST", JsonSerializer.Serialize(new
+            {
+                url = StoLlmUsage.ApiUrl,
+                options = new { headers, body = JsonDocument.Parse(StoLlmUsage.RequestBody).RootElement }
+            })));
+            if (reply.RootElement.Get("error").Text() is { Length: > 0 } error) throw new InvalidDataException(error);
+            return ((int)(reply.RootElement.Get("status").Number() ?? 0), reply.RootElement.Get("body").Text());
+        }
+
+        var response = await Post(token);
+        if (response.Status == 401 && secret.Trim().Length == 0)
+        {
+            var bridged = await Bridge(StoLlmAuth.DefaultProxyPort);
+            if (!string.IsNullOrWhiteSpace(bridged) && !string.Equals(bridged.Trim(), token, StringComparison.Ordinal))
+            {
+                _statuses.Clear();
+                response = await Post(bridged.Trim());
+            }
+        }
+        if (response.Status == 401)
+            throw new ProviderReadException(t("登录过期", "Sign-in expired"),
+                t("请重新打开 https://devops-new.sto.cn/ 登录，或更新设置中的 DevOps Token。",
+                  "Sign in again at https://devops-new.sto.cn/, or update the DevOps token in settings."));
+        if (response.Status is < 200 or >= 300) throw new HttpRequestException("HTTP " + response.Status);
+        using var doc = JsonDocument.Parse(response.Body);
+        return StoLlmUsage.ParseResponse(doc.RootElement);
+    }
     private static string Error(string error) => JsonSerializer.Serialize(new { error });
     // pick: { path: "data", fields: ["a", "b"] } keeps only those fields of each object in the array at path; anything else becomes null.
     private static string Pick(byte[] body, JsonElement pick)
@@ -309,7 +358,7 @@ public sealed class ConfiguredProviders : IDisposable
                 try
                 {
                     if (_retryAt.TryGetValue(requestKey, out var retry) && now < retry) throw new ProviderReadException(Loc.T("请求频繁", "Too many requests"), Loc.T($"站点要求在 {retry.LocalDateTime:HH:mm:ss} 后重试。", $"The site asks to retry after {retry.LocalDateTime:HH:mm:ss}."));
-                    if (secret.Length == 0 && entry.QuotaSource != ProviderId.Custom) throw new ProviderReadException(Loc.T("未配置", "Not configured"), Loc.T("请在设置中填写此来源的 API 密钥。", "Enter this source's API key in settings."));
+                    if (secret.Length == 0 && entry.QuotaSource is not (ProviderId.Custom or ProviderId.StoLlm)) throw new ProviderReadException(Loc.T("未配置", "Not configured"), Loc.T("请在设置中填写此来源的 API 密钥。", "Enter this source's API key in settings."));
                     if (ProviderCatalog.NeedsSite(entry.QuotaSource) && (entry.Site.Length > 0 || entry.QuotaSource != ProviderId.Custom))
                     {
                         // An HTTP address saved by an earlier version, or kept after HTTP was turned off, stops here, before any request.
@@ -363,5 +412,4 @@ public sealed class ConfiguredProviders : IDisposable
     { Metrics = source.Metrics.ToList(), Plan = source.Plan, Scope = source.Scope, Details = new(source.Details), QuotaTime = source.QuotaTime,
         LiveQuota = source.LiveQuota, Source = source.Source, Status = source.Status, StatusLabel = source.StatusLabel, Configurations = [.. source.Configurations], IsStale = source.IsStale };
     public void Dispose() { if (_ownsHttp) _http.Dispose(); }
-    private sealed class ProviderReadException(string label, string message) : Exception(message) { public string Label { get; } = label; }
 }

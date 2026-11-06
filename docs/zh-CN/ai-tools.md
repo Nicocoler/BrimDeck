@@ -26,6 +26,7 @@ AI 用量页的每一列可以在"设置 › 配额与统计"中分别配置：
 | OpenCode Go | ✓ | | 在设置中填写 OpenCode Console API 密钥 |
 | OpenRouter | ✓ | | 在设置中填写 OpenRouter API 密钥 |
 | New API、Sub2API 中转站 | ✓ | | 在设置中填写站点地址和密钥 |
+| 申通大模型 | ✓ | | 本机已装 sto-watt 并登录 devops-new.sto.cn，或在设置中粘贴 DevOps Token |
 | 自定义 | ✓ | | 编写一段 JavaScript 脚本 |
 
 手动填写的来源与 Grok Bot 没有本地用量记录，"今日"和"七日"可以另选一个工具统计。
