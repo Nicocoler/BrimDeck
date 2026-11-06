@@ -550,7 +550,7 @@ sealed class StoHandler : HttpMessageHandler
 }
 ```
 
-说明：`MemorySecrets` / `Handler` 若是 `ConfiguredProviderTests` 的 `private`/`file-local`，把它们提成 `internal` 到共享位置，或在 `StoLlmTests` 复制最小实现（本计划允许复制最小 `MemorySecrets`）。
+说明：`ConfiguredProviderTests` 里的 `MemorySecrets` / `Handler` 是 `private`，**不要去改可见性**；在 `StoLlmTests` 内复制最小 `MemorySecrets`（字典读写）与上面的 `StoHandler` 即可。
 
 - [ ] **Step 2: 接线 `ScriptSession` + 空 secret**
 
