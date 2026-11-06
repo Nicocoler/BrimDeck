@@ -25,6 +25,9 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _alertTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly DispatcherTimer _waterTimer = new();
     private bool _waterPending;
+    // Last water settings the timer was armed for. ApplySettings runs often (focus, theme, layout); resetting
+    // from "now + interval" on every pass would push the due time forever and the notice would never appear.
+    private (bool Enabled, int Minutes, string Start, string End)? _waterSchedule;
     // Compact hover follows the cursor position rather than window mouse messages, which reach
     // this per-pixel transparent window unreliably over the nearly invisible strip around the surface.
     private bool _cursorInCompact, _trackPointer;
@@ -263,12 +266,7 @@ public partial class MainWindow : Window
         ApplyLanguage();
         ApplyTheme();
         if (!Settings.QuotaAlerts && _alert is { Water: false }) ClearAlert();
-        if (!Settings.WaterReminderEnabled)
-        {
-            _waterPending = false;
-            if (_alert is { Water: true }) ClearAlert();
-        }
-        ScheduleWaterReminder();
+        ApplyWaterReminderFromSettings();
         ApplySyncSchedule();
         ApplyMusicSettings();
         ApplySecondClock();
@@ -633,6 +631,22 @@ public partial class MainWindow : Window
         _alert = alert; _alertTimer.Stop(); _alertTimer.Start();
         RenderCompact();
         if (!_expanded && !IsSuppressed) SetExpanded(false);
+    }
+
+    private void ApplyWaterReminderFromSettings()
+    {
+        var key = (Settings.WaterReminderEnabled, Settings.WaterReminderMinutes, Settings.WaterReminderStart, Settings.WaterReminderEnd);
+        if (!Settings.WaterReminderEnabled)
+        {
+            _waterPending = false;
+            _waterTimer.Stop();
+            _waterSchedule = key;
+            if (_alert is { Water: true }) ClearAlert();
+            return;
+        }
+        if (_waterSchedule == key && _waterTimer.IsEnabled) return;
+        _waterSchedule = key;
+        ScheduleWaterReminder();
     }
 
     private void ScheduleWaterReminder()
