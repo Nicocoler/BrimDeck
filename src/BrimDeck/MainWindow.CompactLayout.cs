@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using BrimDeck.Core;
 
 namespace BrimDeck;
@@ -105,6 +106,8 @@ public partial class MainWindow
             waterRow.Children.Add(cup);
             waterRow.Children.Add(text);
             CompactAlert.Children.Add(waterRow);
+            waterRow.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            NoteAlertWidth(Math.Ceiling(waterRow.DesiredSize.Width * dpi - .001) / dpi);
             return;
         }
         var entry = alert.Entry!;
@@ -174,6 +177,18 @@ public partial class MainWindow
         shift.ApplyAnimationClock(TranslateTransform.XProperty, clock);
         double elapsed = Math.Clamp((Environment.TickCount64 - _alertSince!.Value.Since) / 1000d, 0, shown);
         if (elapsed > 0) clock.Controller!.Seek(TimeSpan.FromSeconds(elapsed), TimeSeekOrigin.BeginTime);
+    }
+
+    // Sizes the collapsed surface around a notice (FitCompactToContent); required matches wanted so a fixed-width capsule still grows.
+    private void NoteAlertWidth(double content)
+    {
+        if (!(content > 0)) return;
+        if (double.IsNaN(_compactWanted) || Math.Abs(content - _compactWanted) > .5 || Math.Abs(content - _compactRequired) > .5)
+        {
+            _compactWanted = content;
+            _compactRequired = content;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, FitCompactToContent);
+        }
     }
 
     // Tumbler with a blue water fill — sits beside the drink-water notice so it reads at a glance.
