@@ -712,7 +712,7 @@ public sealed partial class SettingsWindow : Window
         SectionTitle(Loc.T("提示", "Notifications"));
         var waterInterval = SliderRow(
             Loc.T("提醒间隔", "Reminder interval"),
-            S.WaterReminderMinutes, WaterReminder.MinMinutes, WaterReminder.MaxMinutes, 5,
+            S.WaterReminderMinutes, WaterReminder.MinMinutes, WaterReminder.MaxMinutes, 1,
             Loc.T("分钟", "min"),
             value => Change(s => s.WaterReminderMinutes = (int)value));
         var waterWindow = WaterReminderWindowRow();
