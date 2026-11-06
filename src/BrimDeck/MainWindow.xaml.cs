@@ -23,6 +23,8 @@ public partial class MainWindow : Window
     // Fires just after each second boundary while the collapsed clock shows seconds; it redraws only the clock.
     private readonly DispatcherTimer _seconds = new();
     private readonly DispatcherTimer _alertTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly DispatcherTimer _waterTimer = new();
+    private bool _waterPending;
     // Compact hover follows the cursor position rather than window mouse messages, which reach
     // this per-pixel transparent window unreliably over the nearly invisible strip around the surface.
     private bool _cursorInCompact, _trackPointer;
@@ -83,7 +85,7 @@ public partial class MainWindow : Window
     internal void FirstReadEnded() { if (_firstReadEnded) return; _firstReadEnded = true; _usageBuilt = null; }
     public string? LastRefreshError { get; private set; }
 
-    private sealed record CompactAlertInfo(AppEntry Entry, string Name, string Label, double Used, DateTimeOffset? ResetAt);
+    private sealed record CompactAlertInfo(string Name, string Label, double Used, DateTimeOffset? ResetAt, AppEntry? Entry = null, bool Water = false);
 
     public MainWindow(App app, MainWindow? lead = null)
     {
@@ -131,7 +133,14 @@ public partial class MainWindow : Window
         _refresh.Tick += async (_, _) => await RefreshAutomaticallyAsync();
         _clock.Tick += (_, _) => { UpdateClock(); ScheduleClock(); if (_expanded) RenderUsage(); else if (OffPeakChanged()) RenderCompact(); if (_lead is null) _app.CheckUpdatesIfDue(); };
         _seconds.Tick += (_, _) => { if (_compactClock is not null) _compactClock.Time = DateTime.Now; _seconds.Interval = SecondDelay(DateTime.Now); };
-        _alertTimer.Tick += (_, _) => { _alertTimer.Stop(); _alert = null; RenderCompact(); if (!_expanded) SetExpanded(false); };
+        _alertTimer.Tick += (_, _) =>
+        {
+            bool wasQuota = _alert is { Water: false };
+            _alertTimer.Stop(); _alert = null; RenderCompact();
+            if (!_expanded) SetExpanded(false);
+            if (wasQuota) FlushWaterPending();
+        };
+        _waterTimer.Tick += (_, _) => OnWaterDue();
         // A new foreground context closes the panel directly (ApplySettings lays it out collapsed), so SetExpanded never sees the
         // panel turn from open to closed: the collapsed title is set to scroll its laps again here, as SetExpanded does.
         _host.ContextChanged += context =>
@@ -172,7 +181,7 @@ public partial class MainWindow : Window
             if (_lead is null) { _app.AssignDisplays(); await RefreshAutomaticallyAsync(); }
         };
         Closing += (_, e) => { if (!_app.Exiting && !_retiring) { e.Cancel = true; SetExpanded(false); } };
-        Closed += (_, _) => { CancelMove(); _escapeDismissal?.Dispose(); _virtualDesktops?.Dispose(); _host.Dispose(); _hover.Stop(); _leave.Stop(); _pointerTrack.Stop(); _pageSwitchHold.Stop(); _clock.Stop(); _seconds.Stop(); _refresh.Stop(); _alertTimer.Stop(); _clipSettle?.Stop(); };
+        Closed += (_, _) => { CancelMove(); _escapeDismissal?.Dispose(); _virtualDesktops?.Dispose(); _host.Dispose(); _hover.Stop(); _leave.Stop(); _pointerTrack.Stop(); _pageSwitchHold.Stop(); _clock.Stop(); _seconds.Stop(); _refresh.Stop(); _alertTimer.Stop(); _waterTimer.Stop(); _clipSettle?.Stop(); };
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) { WindowState = WindowState.Normal; SetExpanded(false); } };
         // The collapsed island opens on hover, so a right click there does nothing, except leave move mode.
         MouseWheel += PanelWheel;
@@ -253,7 +262,13 @@ public partial class MainWindow : Window
         var shapeBefore = Collapsed; double dipBefore = _pixelsPerDip;
         ApplyLanguage();
         ApplyTheme();
-        if (!Settings.QuotaAlerts && _alert is not null) ClearAlert();
+        if (!Settings.QuotaAlerts && _alert is { Water: false }) ClearAlert();
+        if (!Settings.WaterReminderEnabled)
+        {
+            _waterPending = false;
+            if (_alert is { Water: true }) ClearAlert();
+        }
+        ScheduleWaterReminder();
         ApplySyncSchedule();
         ApplyMusicSettings();
         ApplySecondClock();
@@ -592,7 +607,7 @@ public partial class MainWindow : Window
                 bool rose = _levelsSeeded && _levels.TryGetValue(key, out var previous) && level > previous;
                 _levels[key] = level;
                 if (rose && level > 0 && (risen is null || used > risen.Used))
-                    risen = new CompactAlertInfo(entry, entry.Name, MetricLabel(quota) + " ", Math.Clamp(used, 0, 100), quota.ResetAt);
+                    risen = new CompactAlertInfo(entry.Name, MetricLabel(quota) + " ", Math.Clamp(used, 0, 100), quota.ResetAt, entry);
             }
         }
         _levelsSeeded = true;
@@ -601,8 +616,15 @@ public partial class MainWindow : Window
     }
 
     internal void ShowAlert(AppEntry entry, string label, double used, DateTimeOffset? resetAt)
-        => ShowAlert(new CompactAlertInfo(entry, entry.Name, label + " ", used, resetAt));
-    internal void ClearAlert() { _alertTimer.Stop(); _alert = null; RenderCompact(); }
+        => ShowAlert(new CompactAlertInfo(entry.Name, label + " ", used, resetAt, entry));
+    internal void ShowWaterAlert()
+        => ShowAlert(new CompactAlertInfo(Loc.T("该喝水了", "Time to drink water"), "", 0, null, Water: true));
+    internal void ClearAlert()
+    {
+        bool wasQuota = _alert is { Water: false };
+        _alertTimer.Stop(); _alert = null; RenderCompact();
+        if (wasQuota) FlushWaterPending();
+    }
     // No alert while the panel is suppressed (full-screen rule or hidden by the user): it would not be seen, and it must not
     // appear later when the panel shows again.
     private void ShowAlert(CompactAlertInfo alert)
@@ -611,6 +633,59 @@ public partial class MainWindow : Window
         _alert = alert; _alertTimer.Stop(); _alertTimer.Start();
         RenderCompact();
         if (!_expanded && !IsSuppressed) SetExpanded(false);
+    }
+
+    private void ScheduleWaterReminder()
+    {
+        _waterTimer.Stop();
+        var due = WaterReminder.NextDue(
+            Settings.WaterReminderEnabled,
+            Settings.WaterReminderMinutes,
+            Settings.WaterReminderStart,
+            Settings.WaterReminderEnd,
+            DateTimeOffset.Now);
+        if (due is null) return;
+        var delay = due.Value - DateTimeOffset.Now;
+        if (delay < TimeSpan.FromMilliseconds(50)) delay = TimeSpan.FromMilliseconds(50);
+        if (delay > TimeSpan.FromDays(1)) delay = TimeSpan.FromDays(1);
+        _waterTimer.Interval = delay;
+        _waterTimer.Start();
+    }
+
+    private void OnWaterDue()
+    {
+        _waterTimer.Stop();
+        if (!Settings.WaterReminderEnabled) return;
+        if (IsSuppressed)
+        {
+            ScheduleWaterReminder();
+            return;
+        }
+        if (_alert is { Water: false })
+        {
+            _waterPending = true;
+            return;
+        }
+        ShowWaterAlert();
+        ScheduleWaterReminder();
+    }
+
+    private void FlushWaterPending()
+    {
+        if (!_waterPending) return;
+        _waterPending = false;
+        if (!Settings.WaterReminderEnabled || IsSuppressed)
+        {
+            ScheduleWaterReminder();
+            return;
+        }
+        if (!WaterReminder.InWindow(DateTime.Now, Settings.WaterReminderStart, Settings.WaterReminderEnd))
+        {
+            ScheduleWaterReminder();
+            return;
+        }
+        ShowWaterAlert();
+        ScheduleWaterReminder();
     }
 
     private CompactStyle EffectiveStyle => !_preview && Settings.Behavior(_context, _host.App.Name, _host.App.Path, _host.BackgroundKind) == WindowBehavior.Line ? CompactStyle.Line : Settings.Style;

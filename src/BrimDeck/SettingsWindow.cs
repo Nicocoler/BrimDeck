@@ -642,7 +642,7 @@ public sealed partial class SettingsWindow : Window
                 case MonitorSettingsPage:s.MonitorPalette=defaults.MonitorPalette;s.MonitorCustomColors=defaults.MonitorCustomColors;s.CompactWarningColor=null;s.CompactCriticalColor=null;s.CompactSmoothing=defaults.CompactSmoothing;s.MonitorInterval=defaults.MonitorInterval;s.MonitorProcesses=defaults.MonitorProcesses;s.MonitorSort=defaults.MonitorSort;s.MonitorMain=defaults.MonitorMain;s.MonitorProcessView=defaults.MonitorProcessView;
                     s.CompactMonitor=defaults.CompactMonitor;s.CompactMonitorItems=defaults.CompactMonitorItems;s.CompactReadings=defaults.CompactReadings;s.NotchAutoWidth=defaults.NotchAutoWidth;s.CapsuleAutoWidth=defaults.CapsuleAutoWidth;s.MonitorTemperatures=defaults.MonitorTemperatures;s.MonitorStorage=defaults.MonitorStorage;s.MonitorPower=defaults.MonitorPower;break;
                 // The current theme's application colors go back to its own; the other themes keep what was saved for them.
-                case 3:{var previous=s.Apps;s.QuotaAlerts=defaults.QuotaAlerts;s.IncludeWsl=defaults.IncludeWsl;s.Apps=defaults.Apps;PanelThemes.CarryAppChoices(s,previous);break;}
+                case 3:{var previous=s.Apps;s.QuotaAlerts=defaults.QuotaAlerts;s.WaterReminderEnabled=defaults.WaterReminderEnabled;s.WaterReminderMinutes=defaults.WaterReminderMinutes;s.WaterReminderStart=defaults.WaterReminderStart;s.WaterReminderEnd=defaults.WaterReminderEnd;s.IncludeWsl=defaults.IncludeWsl;s.Apps=defaults.Apps;PanelThemes.CarryAppChoices(s,previous);break;}
                 case 5:s.EqualizerAlways=defaults.EqualizerAlways;s.EqualizerBars=defaults.EqualizerBars;s.EqualizerMode=defaults.EqualizerMode;s.EqualizerColor=defaults.EqualizerColor;s.EqualizerCustomColor=defaults.EqualizerCustomColor;
                     s.MusicText=defaults.MusicText;s.MusicEqualizerBars=defaults.MusicEqualizerBars;s.MusicTrackNotice=defaults.MusicTrackNotice;s.MusicPausedHide=defaults.MusicPausedHide;s.MusicInstrumentalTitle=defaults.MusicInstrumentalTitle;s.MusicCompactCover=defaults.MusicCompactCover;s.MusicPageCover=defaults.MusicPageCover;s.LyricsEnabled=defaults.LyricsEnabled;
                     s.MusicLyricColor=defaults.MusicLyricColor;s.MusicLyricCustomColor=defaults.MusicLyricCustomColor;break;
@@ -710,9 +710,33 @@ public sealed partial class SettingsWindow : Window
     private void Pages()
     {
         SectionTitle(Loc.T("提示", "Notifications"));
-        Group(Toggle(Loc.T("预警和告警提示", "Warning and critical notices"), S.QuotaAlerts, v => Change(s => s.QuotaAlerts = v), help:
-            Loc.T($"开启后，某个应用的已用比例升到预警（{AppPresets.WarningPercent:0}%）或告警（{AppPresets.CriticalPercent:0}%）时，收起的刘海或胶囊会短暂显示该应用的名称、已用比例和重置时间，约 5 秒后恢复。",
-                $"When on, and an app's used share rises to the warning ({AppPresets.WarningPercent:0}%) or critical ({AppPresets.CriticalPercent:0}%) level, the collapsed notch or capsule briefly shows the app's name, used share and reset time, then returns after about 5 seconds.")));
+        var waterInterval = SliderRow(
+            Loc.T("提醒间隔", "Reminder interval"),
+            S.WaterReminderMinutes, WaterReminder.MinMinutes, WaterReminder.MaxMinutes, 5,
+            Loc.T("分钟", "min"),
+            value => Change(s => s.WaterReminderMinutes = (int)value));
+        var waterWindow = WaterReminderWindowRow();
+        void EnableWater(bool on)
+        {
+            foreach (var part in waterInterval.Children.OfType<FrameworkElement>().Where(c => c is not Slider))
+                part.Opacity = on ? 1 : .4;
+            waterInterval.IsEnabled = on;
+            waterWindow.IsEnabled = on;
+            waterWindow.Opacity = on ? 1 : .4;
+        }
+        EnableWater(S.WaterReminderEnabled);
+        Group(
+            Toggle(Loc.T("预警和告警提示", "Warning and critical notices"), S.QuotaAlerts, v => Change(s => s.QuotaAlerts = v), help:
+                Loc.T($"开启后，某个应用的已用比例升到预警（{AppPresets.WarningPercent:0}%）或告警（{AppPresets.CriticalPercent:0}%）时，收起的刘海或胶囊会短暂显示该应用的名称、已用比例和重置时间，约 5 秒后恢复。",
+                    $"When on, and an app's used share rises to the warning ({AppPresets.WarningPercent:0}%) or critical ({AppPresets.CriticalPercent:0}%) level, the collapsed notch or capsule briefly shows the app's name, used share and reset time, then returns after about 5 seconds.")),
+            Toggle(Loc.T("喝水提醒", "Water reminder"), S.WaterReminderEnabled, v =>
+            {
+                Change(s => s.WaterReminderEnabled = v);
+                EnableWater(v);
+            }, help: Loc.T("开启后，在设定的每日时段内按间隔在收起的刘海或胶囊上短暂提示喝水，约 5 秒后消失。全屏免打扰时跳过本轮。",
+                "When on, during the daily window the collapsed notch or capsule briefly nudges you to drink water, then clears after about 5 seconds. Full-screen do-not-disturb skips that cycle.")),
+            waterInterval,
+            waterWindow);
         SectionTitle(Loc.T("数据来源", "Data sources"));
         Group(Toggle(Loc.T("同步 WSL 中的用量统计", "Include usage from WSL"), S.IncludeWsl, v => Change(s => s.IncludeWsl = v), help:
             Loc.T("开启后，会读取已安装的 WSL 子系统中 Claude Code 和 Codex CLI 的会话记录，并计入 Token 用量与费用统计。读取时会唤醒尚未运行的 WSL 子系统，默认关闭。",
@@ -753,6 +777,47 @@ public sealed partial class SettingsWindow : Window
         AutomationProperties.SetName(add, Loc.T("添加应用", "Add app"));
         list.Children.Add(add);
         _content.Children.Add(list);
+    }
+
+    private FrameworkElement WaterReminderWindowRow()
+    {
+        var start = PanelThemes.ParseTimeOfDay(S.WaterReminderStart) ?? PanelThemes.ParseTimeOfDay(WaterReminder.DefaultStart)!.Value;
+        var end = PanelThemes.ParseTimeOfDay(S.WaterReminderEnd) ?? PanelThemes.ParseTimeOfDay(WaterReminder.DefaultEnd)!.Value;
+        var steps = Enumerable.Range(0, 48).Select(i => TimeSpan.FromMinutes(30 * i)).ToList();
+        (ComboBox Box, List<TimeSpan> Times) Pick(TimeSpan value, string name)
+        {
+            var times = steps.Contains(value) ? steps : [.. steps.Append(value).Order()];
+            var box = new ComboBox
+            {
+                Width = 84,
+                Style = (Style)FindResource("SettingsCombo"),
+                ItemsSource = times.Select(PanelThemes.FormatTimeOfDay).ToList(),
+                SelectedIndex = times.IndexOf(value) is var at and >= 0 ? at : 0,
+                HorizontalContentAlignment = HorizontalAlignment.Center
+            };
+            box.DropDownOpened += (_, _) => box.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () => ShowChosen(box));
+            AutomationProperties.SetName(box, name);
+            PopupMotion.Attach(box);
+            return (box, times);
+        }
+        var (from, fromTimes) = Pick(start, Loc.T("开始", "Start"));
+        var (to, toTimes) = Pick(end, Loc.T("结束", "End"));
+        void Save()
+        {
+            var a = PanelThemes.FormatTimeOfDay(fromTimes[Math.Max(0, from.SelectedIndex)]);
+            var b = PanelThemes.FormatTimeOfDay(toTimes[Math.Max(0, to.SelectedIndex)]);
+            Change(s => { s.WaterReminderStart = a; s.WaterReminderEnd = b; });
+        }
+        from.SelectionChanged += (_, _) => Save();
+        to.SelectionChanged += (_, _) => Save();
+        var dash = TextLine("–", 12, TextSecondary);
+        dash.Margin = new Thickness(8, 0, 8, 0);
+        dash.VerticalAlignment = VerticalAlignment.Center;
+        var pair = new StackPanel { Orientation = Orientation.Horizontal };
+        pair.Children.Add(from); pair.Children.Add(dash); pair.Children.Add(to);
+        return Row(Loc.T("每日时段", "Daily window"), pair, help: () => Loc.T(
+            "只在这段本地时间内提醒。结束早于开始时视为跨午夜（例如 22:00–07:00）。起止相同表示全天。",
+            "Remind only during this local window. If end is earlier than start, the window crosses midnight (for example 22:00–07:00). Equal times mean all day."));
     }
 
     // Column headings, each with its help mark when it has a note, as the app list has them.

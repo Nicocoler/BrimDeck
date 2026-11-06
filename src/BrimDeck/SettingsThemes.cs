@@ -209,7 +209,7 @@ public sealed partial class SettingsWindow
     }
 
     // Scrolls an open list so its chosen item stands about a third of the way down, with the times before it in view.
-    private static void ShowChosen(ComboBox box)
+    internal static void ShowChosen(ComboBox box)
     {
         if (box.ItemContainerGenerator.ContainerFromIndex(box.SelectedIndex) is not FrameworkElement item
             || FindParent<ScrollViewer>(item) is not { } scroll) return;

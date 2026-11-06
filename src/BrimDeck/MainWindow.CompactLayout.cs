@@ -87,6 +87,16 @@ public partial class MainWindow
         double width = CompactContentWidth(shape);
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
         double font = Math.Max(1, CompactMusicLayout.Half(11.5 * scale)), line = Math.Max(1, CompactMusicLayout.Whole(16 * scale));
+        if (alert.Water)
+        {
+            var text = UI.Fixed(alert.Name, font, line, UI.Primary, FontWeights.SemiBold);
+            text.HorizontalAlignment = HorizontalAlignment.Center;
+            text.TextAlignment = TextAlignment.Center;
+            text.Tag = AlertRegionTag;
+            CompactAlert.Children.Add(text);
+            return;
+        }
+        var entry = alert.Entry!;
         var name = UI.Fixed(alert.Name, font, line, UI.Primary, FontWeights.SemiBold); name.ToolTip = alert.Name;
         // The name keeps its 76 DIP cap with an ellipsis; below that, its region cuts it.
         name.MaxWidth = CompactMusicLayout.Whole(76 * scale);
@@ -105,7 +115,7 @@ public partial class MainWindow
             // A notch on a side edge: the ring, then each text on its own line, cut with an ellipsis to the column.
             double column = SnapDown(ColumnWidth(shape), dpi);
             var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Width = column, Tag = AlertRegionTag };
-            var mark = UI.Ring(alert.Used, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
+            var mark = UI.Ring(alert.Used, PanelTheme.QuotaTheme(entry), layout.RingSize, layout.RingThickness);
             mark.HorizontalAlignment = HorizontalAlignment.Center; mark.Margin = new Thickness(0, 0, 0, layout.Gap / 2);
             stack.Children.Add(mark);
             name.MaxWidth = column;
@@ -120,7 +130,7 @@ public partial class MainWindow
             return;
         }
         double row = Math.Max(layout.RingSize, layout.LineHeight);
-        var ring = UI.Ring(alert.Used, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
+        var ring = UI.Ring(alert.Used, PanelTheme.QuotaTheme(entry), layout.RingSize, layout.RingThickness);
         var parts = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         if (layout.RingWidth > 0) parts.Children.Add(CompactRegion(ring, layout.RingWidth, layout.RingSize, layout.RingSize, row, RegionAnchor.Left, dpi));
         if (layout.NameWidth > 0) parts.Children.Add(CompactRegion(name, layout.NameWidth, Math.Min(nameWidth, name.MaxWidth), line, row, RegionAnchor.Left, dpi));

@@ -514,6 +514,11 @@ public sealed class DeckSettings
     public bool SettingsWindowMaximized { get; set; }
     // Shows the compact notice when a quota rises into the warning or critical level.
     public bool QuotaAlerts { get; set; } = true;
+    // Timed drink-water notice on the collapsed island (WaterReminder).
+    public bool WaterReminderEnabled { get; set; } = true;
+    public int WaterReminderMinutes { get; set; } = WaterReminder.DefaultMinutes;
+    public string WaterReminderStart { get; set; } = WaterReminder.DefaultStart;
+    public string WaterReminderEnd { get; set; } = WaterReminder.DefaultEnd;
     // Also reads the Claude Code and Codex CLI session records inside WSL distributions. Off by default: it starts stopped distributions.
     public bool IncludeWsl { get; set; }
     // The ordered application list; the order is the column order of the expanded panel. Claude and Codex are shown
@@ -667,6 +672,9 @@ public sealed class DeckSettings
         OpenDelay = Math.Clamp(OpenDelay, 0, 2000);
         CloseDelay = Math.Clamp(CloseDelay, 0, 2000);
         AnimationDuration = Math.Clamp(AnimationDuration, 100, 1000);
+        WaterReminderMinutes = WaterReminder.ClampMinutes(WaterReminderMinutes);
+        WaterReminderStart = WaterReminder.NormalizeTime(WaterReminderStart, WaterReminder.DefaultStart);
+        WaterReminderEnd = WaterReminder.NormalizeTime(WaterReminderEnd, WaterReminder.DefaultEnd);
         if (!Enum.IsDefined(Theme)) Theme = SettingsTheme.System;
         PanelTheme = PanelThemes.NormalizeId(PanelTheme) is { Length: > 0 } panelTheme ? panelTheme : PanelThemes.Dark;
         // Two valid, different times or none: anything else keeps the theme's own hours.

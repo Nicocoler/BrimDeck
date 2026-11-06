@@ -72,6 +72,7 @@ try
     await PortableUpdateTests.Run(root, Check);
     SettingsMigrationTests.Run(root, Check);
     OffPeakTests.Run(root, Check);
+    WaterReminderTests.Run(root, Check);
     FullscreenRuleTests.Run(Check);
     LanguageTests.Run(root, Check);
     await ConfiguredProviderTests.Run(Check);
