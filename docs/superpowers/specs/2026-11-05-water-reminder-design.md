@@ -21,7 +21,7 @@ Timed “drink water” reminders on BrimDeck’s collapsed Dynamic Island, reus
 | Setting | Default | Notes |
 | --- | --- | --- |
 | Enabled | `true` | Toggle in Settings |
-| Interval | `45` minutes | Clamped to 5–180 |
+| Interval | `45` minutes | Clamped to 1–180 |
 | Daily window start | `09:00` | Local `"HH:mm"` |
 | Daily window end | `22:00` | Local `"HH:mm"`; may be before start (cross-midnight) |
 
@@ -48,7 +48,7 @@ MainWindow DispatcherTimer fires at DueAt
 ### Settings (`DeckSettings`)
 
 - `WaterReminderEnabled` (`bool`, default `true`)
-- `WaterReminderMinutes` (`int`, default `45`, clamp 5–180 on set/load)
+- `WaterReminderMinutes` (`int`, default `45`, clamp 1–180 on set/load)
 - `WaterReminderStart` / `WaterReminderEnd` (`string`, `"HH:mm"`, defaults `09:00` / `22:00`)
 
 Persist through the existing `SettingsStore` / `settings.json` path. Invalid or missing time strings fall back to defaults on load.

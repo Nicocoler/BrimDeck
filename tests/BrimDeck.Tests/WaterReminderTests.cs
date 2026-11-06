@@ -31,8 +31,8 @@ internal static class WaterReminderTests
             WaterReminder.InWindow(noon.DateTime, "12:00", "12:00")
             && WaterReminder.NextDue(true, 30, "12:00", "12:00", noon) == noon.AddMinutes(30));
 
-        check("minutes are clamped to 5–180",
-            WaterReminder.ClampMinutes(1) == 5 && WaterReminder.ClampMinutes(200) == 180 && WaterReminder.ClampMinutes(45) == 45);
+        check("minutes are clamped to 1–180",
+            WaterReminder.ClampMinutes(0) == 1 && WaterReminder.ClampMinutes(200) == 180 && WaterReminder.ClampMinutes(45) == 45);
 
         check("invalid times fall back to 09:00 / 22:00",
             WaterReminder.NormalizeTime("nope", WaterReminder.DefaultStart) == WaterReminder.DefaultStart

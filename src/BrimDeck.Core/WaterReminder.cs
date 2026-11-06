@@ -3,7 +3,7 @@ namespace BrimDeck.Core;
 public static class WaterReminder
 {
     public const string DefaultStart = "09:00", DefaultEnd = "22:00";
-    public const int DefaultMinutes = 45, MinMinutes = 5, MaxMinutes = 180;
+    public const int DefaultMinutes = 45, MinMinutes = 1, MaxMinutes = 180;
 
     public static int ClampMinutes(int minutes) => Math.Clamp(minutes, MinMinutes, MaxMinutes);
 
