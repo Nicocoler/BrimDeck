@@ -29,10 +29,10 @@ public sealed partial class SettingsWindow : Window
     private readonly TextBlock _status = new() { Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
     private ScrollViewer _scroll = null!;
     private static string[] _pages => [Loc.T("常规", "General"), Loc.T("收起外观", "Collapsed view"), Loc.T("展开外观", "Expanded view"),
-        Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings"), Loc.T("增强传感器", "Enhanced sensors")];
-    // The order of the pages in the navigation; the theme page (ThemePage) is listed with the appearance pages, and the system
-    // monitor's page (MonitorSettingsPage) has its own group after music, before About.
-    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, 3, 4, 5, 6, MonitorSettingsPage, SensorsPage, 7];
+        Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings"), Loc.T("增强传感器", "Enhanced sensors"), Loc.T("喝水提醒", "Water reminder")];
+    // The order of the pages in the navigation; the theme page (ThemePage) is listed with the appearance pages, water reminder
+    // has its own group before AI usage, and the system monitor's page (MonitorSettingsPage) has its own group after music.
+    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, WaterReminderPage, 3, 4, 5, 6, MonitorSettingsPage, SensorsPage, 7];
     private int _page;
     private bool _preview;
     private StackPanel? _appRows;
@@ -320,9 +320,17 @@ public sealed partial class SettingsWindow : Window
         _page = page; _navigation.Children.Clear(); _content.Children.Clear(); _aboutUpdateView = null; _scroll.ScrollToTop();
         foreach (int i in PageOrder)
         {
-            if (i is 0 or 3 or 5 or 7 or MonitorSettingsPage)
+            if (i is 0 or 3 or 5 or 7 or MonitorSettingsPage or WaterReminderPage)
             {
-                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), 5 => Loc.T("音乐", "Music"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
+                var group = TextLine(i switch
+                {
+                    0 => Loc.T("基础设置", "Basics"),
+                    WaterReminderPage => Loc.T("提醒", "Reminders"),
+                    3 => Loc.T("AI 用量", "AI usage"),
+                    MonitorSettingsPage => Loc.T("系统监控", "System monitor"),
+                    5 => Loc.T("音乐", "Music"),
+                    _ => Loc.T("关于", "About")
+                }, 10.5, TextTertiary);
                 group.Margin = new Thickness(12, i == 0 ? 0 : 24, 0, 8); _navigation.Children.Add(group);
             }
             int target=i; bool selected=page==i;
@@ -337,13 +345,13 @@ public sealed partial class SettingsWindow : Window
         }
         // The About page is titled by the wordmark itself, so the name does not appear twice.
         var head = new DockPanel { Margin = new Thickness(0,0,0,page == 7 ? 10 : 20) };
-        if (page is < 4 or 5 or 6 or ThemePage or MonitorSettingsPage)
+        if (page is < 4 or 5 or 6 or ThemePage or MonitorSettingsPage or WaterReminderPage)
         {
             // Resets every setting on the page, so it asks first (SW-09, S-03); it keeps the look of the other "restore defaults" links.
             var reset=ActionButton(Loc.T("恢复默认", "Restore defaults"),()=>{ if(Confirm(Loc.T("恢复默认", "Restore defaults"),ResetConfirmText(page),Loc.T("恢复默认", "Restore defaults")))ResetPage(); }); reset.FontSize=11; DockPanel.SetDock(reset,Dock.Right); head.Children.Add(reset);
         }
         head.Children.Add(page == 7 ? Wordmark(28) : TextLine(_pages[page],24,TextPrimary,FontWeights.SemiBold)); _content.Children.Add(head);
-        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case SensorsPage: SensorsSettings(); break; }
+        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case SensorsPage: SensorsSettings(); break; case WaterReminderPage: WaterReminderSettings(); break; }
         if (_content.Children[^1] is Border lastGroup) lastGroup.Margin = new Thickness(lastGroup.Margin.Left, lastGroup.Margin.Top, lastGroup.Margin.Right, 0);
         // Apply the offset before the frame is drawn, so the rebuilt page never shows its top for a frame.
         if (keep > 0) { _scroll.UpdateLayout(); _scroll.ScrollToVerticalOffset(keep); _scroll.UpdateLayout(); }
@@ -362,6 +370,8 @@ public sealed partial class SettingsWindow : Window
         MonitorSettingsPage => "M 1,9 H 4 L 6,4 L 9,13 L 11,7 L 12,9 H 15",
         SensorsPage => "M 4,4 H 12 V 12 H 4 Z M 6,1 V 4 M 10,1 V 4 M 6,12 V 15 M 10,12 V 15 M 1,6 H 4 M 1,10 H 4 M 12,6 H 15 M 12,10 H 15",
         ThemePage => "M 8,1 C 4,1 1,4 1,8 C 1,12 4,15 8,15 C 9.4,15 9.6,13.6 8.8,12.8 C 8,12 8.6,10.5 10,10.5 H 12 C 13.7,10.5 15,9.2 15,7.5 C 15,4 12,1 8,1 Z M 4.6,8 V 8.1 M 6,4.8 V 4.9 M 9.6,4.4 V 4.5 M 12,6.8 V 6.9",
+        // Tumbler outline for the water-reminder page.
+        WaterReminderPage => "M 4,2.5 L 5,13 Q 8,14.5 11,13 L 12,2.5 Z M 5.2,7.5 L 5.5,12 Q 8,13 10.5,12 L 10.8,7.5",
         5 => "M 6,12.5 V 3 L 14,1.5 V 11 M 6,12.5 A 2,2 0 1 1 2,12.5 A 2,2 0 1 1 6,12.5 M 14,11 A 2,2 0 1 1 10,11 A 2,2 0 1 1 14,11",
         _ => "M 8,1 A 7,7 0 1 1 7.99,1 M 8,7 V 12 M 8,4 V 4.2"
     },16,16,color);
@@ -642,7 +652,8 @@ public sealed partial class SettingsWindow : Window
                 case MonitorSettingsPage:s.MonitorPalette=defaults.MonitorPalette;s.MonitorCustomColors=defaults.MonitorCustomColors;s.CompactWarningColor=null;s.CompactCriticalColor=null;s.CompactSmoothing=defaults.CompactSmoothing;s.MonitorInterval=defaults.MonitorInterval;s.MonitorProcesses=defaults.MonitorProcesses;s.MonitorSort=defaults.MonitorSort;s.MonitorMain=defaults.MonitorMain;s.MonitorProcessView=defaults.MonitorProcessView;
                     s.CompactMonitor=defaults.CompactMonitor;s.CompactMonitorItems=defaults.CompactMonitorItems;s.CompactReadings=defaults.CompactReadings;s.NotchAutoWidth=defaults.NotchAutoWidth;s.CapsuleAutoWidth=defaults.CapsuleAutoWidth;s.MonitorTemperatures=defaults.MonitorTemperatures;s.MonitorStorage=defaults.MonitorStorage;s.MonitorPower=defaults.MonitorPower;break;
                 // The current theme's application colors go back to its own; the other themes keep what was saved for them.
-                case 3:{var previous=s.Apps;s.QuotaAlerts=defaults.QuotaAlerts;s.WaterReminderEnabled=defaults.WaterReminderEnabled;s.WaterReminderMinutes=defaults.WaterReminderMinutes;s.WaterReminderStart=defaults.WaterReminderStart;s.WaterReminderEnd=defaults.WaterReminderEnd;s.IncludeWsl=defaults.IncludeWsl;s.Apps=defaults.Apps;PanelThemes.CarryAppChoices(s,previous);break;}
+                case 3:{var previous=s.Apps;s.QuotaAlerts=defaults.QuotaAlerts;s.IncludeWsl=defaults.IncludeWsl;s.Apps=defaults.Apps;PanelThemes.CarryAppChoices(s,previous);break;}
+                case WaterReminderPage:s.WaterReminderEnabled=defaults.WaterReminderEnabled;s.WaterReminderMinutes=defaults.WaterReminderMinutes;s.WaterReminderStart=defaults.WaterReminderStart;s.WaterReminderEnd=defaults.WaterReminderEnd;break;
                 case 5:s.EqualizerAlways=defaults.EqualizerAlways;s.EqualizerBars=defaults.EqualizerBars;s.EqualizerMode=defaults.EqualizerMode;s.EqualizerColor=defaults.EqualizerColor;s.EqualizerCustomColor=defaults.EqualizerCustomColor;
                     s.MusicText=defaults.MusicText;s.MusicEqualizerBars=defaults.MusicEqualizerBars;s.MusicTrackNotice=defaults.MusicTrackNotice;s.MusicPausedHide=defaults.MusicPausedHide;s.MusicInstrumentalTitle=defaults.MusicInstrumentalTitle;s.MusicCompactCover=defaults.MusicCompactCover;s.MusicPageCover=defaults.MusicPageCover;s.LyricsEnabled=defaults.LyricsEnabled;
                     s.MusicLyricColor=defaults.MusicLyricColor;s.MusicLyricCustomColor=defaults.MusicLyricCustomColor;break;
@@ -710,33 +721,9 @@ public sealed partial class SettingsWindow : Window
     private void Pages()
     {
         SectionTitle(Loc.T("提示", "Notifications"));
-        var waterInterval = SliderRow(
-            Loc.T("提醒间隔", "Reminder interval"),
-            S.WaterReminderMinutes, WaterReminder.MinMinutes, WaterReminder.MaxMinutes, 1,
-            Loc.T("分钟", "min"),
-            value => Change(s => s.WaterReminderMinutes = (int)value));
-        var waterWindow = WaterReminderWindowRow();
-        void EnableWater(bool on)
-        {
-            foreach (var part in waterInterval.Children.OfType<FrameworkElement>().Where(c => c is not Slider))
-                part.Opacity = on ? 1 : .4;
-            waterInterval.IsEnabled = on;
-            waterWindow.IsEnabled = on;
-            waterWindow.Opacity = on ? 1 : .4;
-        }
-        EnableWater(S.WaterReminderEnabled);
-        Group(
-            Toggle(Loc.T("预警和告警提示", "Warning and critical notices"), S.QuotaAlerts, v => Change(s => s.QuotaAlerts = v), help:
-                Loc.T($"开启后，某个应用的已用比例升到预警（{AppPresets.WarningPercent:0}%）或告警（{AppPresets.CriticalPercent:0}%）时，收起的刘海或胶囊会短暂显示该应用的名称、已用比例和重置时间，约 5 秒后恢复。",
-                    $"When on, and an app's used share rises to the warning ({AppPresets.WarningPercent:0}%) or critical ({AppPresets.CriticalPercent:0}%) level, the collapsed notch or capsule briefly shows the app's name, used share and reset time, then returns after about 5 seconds.")),
-            Toggle(Loc.T("喝水提醒", "Water reminder"), S.WaterReminderEnabled, v =>
-            {
-                Change(s => s.WaterReminderEnabled = v);
-                EnableWater(v);
-            }, help: Loc.T("开启后，在设定的每日时段内按间隔在收起的刘海或胶囊上短暂提示喝水，约 5 秒后消失。全屏免打扰时跳过本轮。",
-                "When on, during the daily window the collapsed notch or capsule briefly nudges you to drink water, then clears after about 5 seconds. Full-screen do-not-disturb skips that cycle.")),
-            waterInterval,
-            waterWindow);
+        Group(Toggle(Loc.T("预警和告警提示", "Warning and critical notices"), S.QuotaAlerts, v => Change(s => s.QuotaAlerts = v), help:
+            Loc.T($"开启后，某个应用的已用比例升到预警（{AppPresets.WarningPercent:0}%）或告警（{AppPresets.CriticalPercent:0}%）时，收起的刘海或胶囊会短暂显示该应用的名称、已用比例和重置时间，约 5 秒后恢复。",
+                $"When on, and an app's used share rises to the warning ({AppPresets.WarningPercent:0}%) or critical ({AppPresets.CriticalPercent:0}%) level, the collapsed notch or capsule briefly shows the app's name, used share and reset time, then returns after about 5 seconds.")));
         SectionTitle(Loc.T("数据来源", "Data sources"));
         Group(Toggle(Loc.T("同步 WSL 中的用量统计", "Include usage from WSL"), S.IncludeWsl, v => Change(s => s.IncludeWsl = v), help:
             Loc.T("开启后，会读取已安装的 WSL 子系统中 Claude Code 和 Codex CLI 的会话记录，并计入 Token 用量与费用统计。读取时会唤醒尚未运行的 WSL 子系统，默认关闭。",
