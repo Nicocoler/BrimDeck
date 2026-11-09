@@ -7,10 +7,10 @@ internal static class StoLlmTests
 {
     public static async Task Run(string root, Action<string, bool> check)
     {
-        Auth(root, check);
+        Auth(check);
         Mapping(check);
-        Catalog(root, check);
-        await Fetch(root, check);
+        Catalog(check);
+        await Fetch(check);
     }
 
     private static string Jwt(long expUnix)
@@ -23,7 +23,7 @@ internal static class StoLlmTests
         return $"eyJhbGciOiJub25lIn0.{B64($"{{\"exp\":{expUnix}}}")}.x";
     }
 
-    private static void Auth(string root, Action<string, bool> check)
+    private static void Auth(Action<string, bool> check)
     {
         var now = DateTimeOffset.Parse("2026-11-06T12:00:00Z");
         check("JWT with exp more than 60s ahead is valid",
@@ -33,33 +33,19 @@ internal static class StoLlmTests
         check("Malformed JWT is invalid",
             !StoLlmAuth.IsJwtValid("not.a.jwt", now) && !StoLlmAuth.IsJwtValid("", now));
 
-        var home = Path.Combine(root, "sto-watt-home");
-        Directory.CreateDirectory(home);
-        File.WriteAllText(Path.Combine(home, ".env"), "# c\nDEVOPS_STOTOKEN=" + Jwt(now.ToUnixTimeSeconds() + 3600) + "\nOTHER=1\n");
-        check("Reads DEVOPS_STOTOKEN from sto-watt .env",
-            StoLlmAuth.ReadEnvToken(home, now) is { Length: > 10 });
-        File.WriteAllText(Path.Combine(home, ".env"), "DEVOPS_STOTOKEN=" + Jwt(now.ToUnixTimeSeconds() - 10) + "\n");
-        check("Expired env token is ignored", StoLlmAuth.ReadEnvToken(home, now) is null);
-
-        check("Manual secret wins over env and bridge",
-            StoLlmAuth.ResolveToken("  pasted-token  ", home, _ => Task.FromResult<string?>(null), now).Result == "pasted-token");
-
         var valid = Jwt(now.ToUnixTimeSeconds() + 3600);
-        File.WriteAllText(Path.Combine(home, ".env"), "DEVOPS_STOTOKEN=" + valid + "\n");
-        check("Env is used when manual secret is empty",
-            StoLlmAuth.ResolveToken("", home, _ => Task.FromResult<string?>("bridge"), now).Result == valid);
-
-        check("Bridge is used when env missing",
-            StoLlmAuth.ResolveToken("", Path.Combine(root, "missing-home"), _ => Task.FromResult<string?>(" from-bridge "), now).Result == "from-bridge");
-        check("No sources yields null",
-            StoLlmAuth.ResolveToken("", Path.Combine(root, "missing-home"), _ => Task.FromResult<string?>(null), now).Result is null);
-
-        check("Auto available when .sto-watt folder exists",
-            StoLlmAuth.IsAutoAvailable(home, () => false));
-        check("Auto available when probe says proxy is up",
-            StoLlmAuth.IsAutoAvailable(Path.Combine(root, "no-watt"), () => true));
-        check("Auto unavailable when neither present",
-            !StoLlmAuth.IsAutoAvailable(Path.Combine(root, "no-watt"), () => false));
+        var session = new StoLlmSession(valid, "openid-1", "张三", now);
+        var json = StoLlmSession.Serialize(session);
+        check("ResolveToken reads stoToken from session JSON",
+            StoLlmAuth.ResolveToken(json, now) == valid);
+        check("ResolveToken rejects expired session JWT",
+            StoLlmAuth.ResolveToken(StoLlmSession.Serialize(session with { StoToken = Jwt(now.ToUnixTimeSeconds() - 10) }), now) is null);
+        check("ResolveToken accepts legacy bare JWT",
+            StoLlmAuth.ResolveToken("  " + valid + "  ", now) == valid);
+        check("ResolveToken empty is null",
+            StoLlmAuth.ResolveToken("", now) is null && StoLlmAuth.ResolveToken("{}", now) is null);
+        check("TryReadSession round-trips display fields",
+            StoLlmSession.TryRead(json) is { OpenId: "openid-1", DisplayName: "张三" });
     }
 
     private static void Mapping(Action<string, bool> check)
@@ -102,7 +88,7 @@ internal static class StoLlmTests
             && Fail("""{"code":"0","data":[]}""") != "");
     }
 
-    private static void Catalog(string root, Action<string, bool> check)
+    private static void Catalog(Action<string, bool> check)
     {
         check("StoLlm is quota-only, keyed sto-llm, value 21",
             (int)ProviderId.StoLlm == 21
@@ -114,12 +100,8 @@ internal static class StoLlmTests
             && PanelThemes.AppKey(ProviderId.StoLlm) == "manual"
             && AppPresets.ThemeColor(ProviderId.StoLlm) == AppPresets.ManualColor);
 
-        var home = Path.Combine(root, "watt-for-group");
-        Directory.CreateDirectory(home);
-        check("Group is automatic when sto-watt home exists",
-            ProviderCatalog.Group(ProviderId.StoLlm, home, () => false) == Loc.T("自动读取", "Read automatically"));
-        check("Group is manual when neither watt nor proxy",
-            ProviderCatalog.Group(ProviderId.StoLlm, Path.Combine(root, "no"), () => false) == Loc.T("手动填写", "Entered by hand"));
+        check("StoLlm group is always automatic (SSO)",
+            ProviderCatalog.Group(ProviderId.StoLlm) == Loc.T("自动读取", "Read automatically"));
 
         var saved = JsonSerializer.Deserialize<DeckSettings>(
             JsonSerializer.Serialize(new DeckSettings { Apps = [new AppEntry { QuotaSource = ProviderId.StoLlm }] }))!;
@@ -128,23 +110,18 @@ internal static class StoLlmTests
             && JsonSerializer.Serialize(saved).Contains("\"QuotaSource\":\"sto-llm\""));
     }
 
-    private static async Task Fetch(string root, Action<string, bool> check)
+    private static async Task Fetch(Action<string, bool> check)
     {
         var now = DateTimeOffset.Parse("2026-11-06T12:00:00Z");
         var token = Jwt(now.ToUnixTimeSeconds() + 3600);
         var entry = new AppEntry { QuotaSource = ProviderId.StoLlm, SecretRevision = Guid.NewGuid() };
         var secrets = new MemorySecrets();
-        secrets.Write(entry.InstanceId, token);
+        secrets.Write(entry.InstanceId, StoLlmSession.Serialize(new StoLlmSession(token, "oid", "u", now)));
 
         using var handler = new StoHandler();
         using var http = new HttpClient(handler);
         handler.Respond = request =>
         {
-            if (request.RequestUri!.AbsolutePath.Contains("devops-token"))
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent("""{"token":"bridge-only"}""", Encoding.UTF8, "application/json")
-                };
             if (!request.Headers.TryGetValues("auth_token", out var auth) || auth.Single() != token)
                 return new HttpResponseMessage(HttpStatusCode.Unauthorized);
             return new HttpResponseMessage(HttpStatusCode.OK)
@@ -157,17 +134,16 @@ internal static class StoLlmTests
 
         using var providers = new ConfiguredProviders(secrets, http, () => now);
         var test = await providers.TestAsync(entry);
-        check("ConfiguredProviders fetches StoLlm with pasted token",
+        check("ConfiguredProviders fetches StoLlm with SSO session",
             test.Snapshot.LiveQuota && test.Snapshot.Plan == "优享版" && test.Snapshot.Metrics[0].Amount == 10m);
 
         var empty = new AppEntry { QuotaSource = ProviderId.StoLlm };
         var missing = await providers.TestAsync(empty);
-        check("Empty StoLlm without sto-watt token is not configured",
+        check("Empty StoLlm without SSO session is not configured",
             !missing.Snapshot.LiveQuota
             && (missing.Snapshot.StatusLabel.Contains("未")
                 || missing.Snapshot.StatusLabel.Contains("Not")
-                || missing.Snapshot.StatusLabel.Contains("登录")
-                || missing.Snapshot.Status.Contains("devops-new")));
+                || missing.Snapshot.StatusLabel.Contains("登录")));
     }
 
     private sealed class MemorySecrets : IProviderSecrets

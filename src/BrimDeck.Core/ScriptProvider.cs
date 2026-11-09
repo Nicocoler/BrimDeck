@@ -225,14 +225,11 @@ internal sealed class ScriptSession(HttpClient http, AppEntry entry, string secr
     {
         string t(string zh, string en) => Loc.T(zh, en);
         var nowUtc = now.ToUniversalTime();
-        async Task<string?> Bridge(int port) => await StoLlmAuth.FetchBridgeTokenAsync(http, port, cancellation);
-
-        var token = await StoLlmAuth.ResolveToken(secret, StoLlmAuth.DefaultStoWattHome, Bridge, nowUtc);
+        var token = StoLlmAuth.ResolveToken(secret, nowUtc);
         if (token is null)
             throw new ProviderReadException(
                 t("未登录", "Not signed in"),
-                t("请打开 https://devops-new.sto.cn/ 登录，或安装并启动 sto-watt，也可在设置中粘贴 DevOps Token。",
-                  "Open https://devops-new.sto.cn/ and sign in, install and start sto-watt, or paste a DevOps token in settings."));
+                t("请在设置中登录申通账号。", "Sign in with your STO account in Settings."));
 
         async Task<(int Status, string Body)> Post(string jwt)
         {
@@ -247,19 +244,9 @@ internal sealed class ScriptSession(HttpClient http, AppEntry entry, string secr
         }
 
         var response = await Post(token);
-        if (response.Status == 401 && secret.Trim().Length == 0)
-        {
-            var bridged = await Bridge(StoLlmAuth.DefaultProxyPort);
-            if (!string.IsNullOrWhiteSpace(bridged) && !string.Equals(bridged.Trim(), token, StringComparison.Ordinal))
-            {
-                _statuses.Clear();
-                response = await Post(bridged.Trim());
-            }
-        }
         if (response.Status == 401)
             throw new ProviderReadException(t("登录过期", "Sign-in expired"),
-                t("请重新打开 https://devops-new.sto.cn/ 登录，或更新设置中的 DevOps Token。",
-                  "Sign in again at https://devops-new.sto.cn/, or update the DevOps token in settings."));
+                t("请在设置中重新登录申通账号。", "Sign in again with your STO account in Settings."));
         if (response.Status is < 200 or >= 300) throw new HttpRequestException("HTTP " + response.Status);
         using var doc = JsonDocument.Parse(response.Body);
         return StoLlmUsage.ParseResponse(doc.RootElement);

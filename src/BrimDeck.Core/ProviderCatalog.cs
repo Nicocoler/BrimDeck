@@ -52,10 +52,11 @@ public static class ProviderCatalog
     public static string QuotaTip(ProviderId id) => Loc.T("配额来源：", "Quota source: ") + Name(id) + (QuotaDescription(id) is { Length: > 0 } text ? "\n" + text : "");
     // The quota-source menu groups sources by whether the user has to fill anything in.
     public static string Group(ProviderId id) => Group(id, null, null);
+    // stoWattHome / proxyUp retained so older call sites compile; StoLlm is always "automatic" (SSO in settings).
     public static string Group(ProviderId id, string? stoWattHome, Func<bool>? proxyUp) =>
-        id == ProviderId.StoLlm
-            ? (StoLlmAuth.IsAutoAvailable(stoWattHome, proxyUp) ? Loc.T("自动读取", "Read automatically") : Loc.T("手动填写", "Entered by hand"))
-            : IsBuiltIn(id) ? Loc.T("自动读取", "Read automatically") : Loc.T("手动填写", "Entered by hand");
+        id == ProviderId.StoLlm || IsBuiltIn(id)
+            ? Loc.T("自动读取", "Read automatically")
+            : Loc.T("手动填写", "Entered by hand");
     public static string Name(ProviderId id) => id switch
     {
         ProviderId.GlmChina => Loc.T("智谱 GLM", "Zhipu GLM"), ProviderId.GlmGlobal => "Z.ai GLM", ProviderId.Dsh => "DeepSeek Harness", ProviderId.GrokBot => "Grok Bot", ProviderId.Kimi => "Kimi Code", ProviderId.KimiApi => "Kimi Code API", ProviderId.OpenCode => "OpenCode", ProviderId.OpenCodeGo => "OpenCode Go", ProviderId.OpenRouter => "OpenRouter", ProviderId.DeepSeek => "DeepSeek", ProviderId.NewApi => "New API", ProviderId.Sub2Api => "Sub2API", ProviderId.StoLlm => Loc.T("申通大模型", "STO LLM"), ProviderId.Custom => Loc.T("自定义", "Custom"),
