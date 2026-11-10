@@ -145,6 +145,14 @@ internal static class CompactSpacingTests
             && CollapsedGeometry.Resolve(new DeckSettings { NotchHeight = 24 }, CompactStyle.Notch, screen, area, 1, null, 300).Surface.Width == 356
             && CollapsedGeometry.Resolve(capsule, CompactStyle.Line, screen, area, 1, null, 300).Surface.Width == CollapsedLimits.LineLengthDefault
             && CollapsedGeometry.Resolve(capsule, CompactStyle.Capsule, screen, area).Surface.Width == 140);
+        // Quota / water notice while the indicator is forced: EffectiveStyle leaves the line and sizes the capsule to the
+        // notice (contentWanted), not the indicator's leftover length — otherwise the text scrolls inside a thin strip.
+        double alertContent = 280;
+        var fromLine = CollapsedGeometry.Resolve(capsule, CompactStyle.Capsule, screen, area, 1, alertContent, alertContent);
+        check("Compact alert from indicator: capsule grows to the notice, not the line length",
+            fromLine.Surface.Width == CollapsedGeometry.SurfaceWidth(CompactStyle.Capsule, fromLine.Surface.Height, alertContent)
+            && fromLine.ContentWidth >= alertContent - 1e-9
+            && fromLine.Surface.Width > CollapsedLimits.LineLengthDefault);
         check("Compact required: the height the surface takes, within its range and the screen or work area",
             CollapsedGeometry.SurfaceHeight(CompactStyle.Notch, 64, new DipRect(0, 0, 800, 40), new DipRect(0, 0, 800, 30)) == 40
             && CollapsedGeometry.SurfaceHeight(CompactStyle.Capsule, 64, new DipRect(0, 0, 800, 40), new DipRect(0, 0, 800, 30)) == 30

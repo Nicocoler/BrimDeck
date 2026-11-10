@@ -140,7 +140,11 @@ public partial class MainWindow : Window
         {
             bool wasQuota = _alert is { Water: false };
             _alertTimer.Stop(); _alert = null; RenderCompact();
-            if (!_expanded) SetExpanded(false);
+            if (!_expanded)
+            {
+                if (EffectiveStyle == CompactStyle.Line) _morphingShape = !_poweringOff && IsVisible && Soft.Enabled && Settings.AnimationDuration > 0 && !_bootWaiting;
+                SetExpanded(false);
+            }
             if (wasQuota) FlushWaterPending();
         };
         _waterTimer.Tick += (_, _) => OnWaterDue();
@@ -622,6 +626,12 @@ public partial class MainWindow : Window
     {
         bool wasQuota = _alert is { Water: false };
         _alertTimer.Stop(); _alert = null; RenderCompact();
+        // Same as the auto-dismiss timer: return to the indicator (or the saved style) with a morph when entering the line.
+        if (!_expanded)
+        {
+            if (EffectiveStyle == CompactStyle.Line) _morphingShape = !_poweringOff && IsVisible && Soft.Enabled && Settings.AnimationDuration > 0 && !_bootWaiting;
+            SetExpanded(false);
+        }
         if (wasQuota) FlushWaterPending();
     }
     // No alert while the panel is suppressed (full-screen rule or hidden by the user): it would not be seen, and it must not
@@ -629,9 +639,15 @@ public partial class MainWindow : Window
     private void ShowAlert(CompactAlertInfo alert)
     {
         if (IsSuppressed) return;
+        // Leaving the indicator for a notice: morph so the surface widens with the style change instead of a delayed close track.
+        bool leavingLine = Collapsed.Style == CompactStyle.Line;
         _alert = alert; _alertTimer.Stop(); _alertTimer.Start();
         RenderCompact();
-        if (!_expanded && !IsSuppressed) SetExpanded(false);
+        if (!_expanded && !IsSuppressed)
+        {
+            if (leavingLine) _morphingShape = !_poweringOff && IsVisible && Soft.Enabled && Settings.AnimationDuration > 0 && !_bootWaiting;
+            SetExpanded(false);
+        }
     }
 
     private void ApplyWaterReminderFromSettings()

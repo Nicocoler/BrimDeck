@@ -152,9 +152,14 @@ public partial class MainWindow
         if (layout.TextWidth > 0) parts.Children.Add(CompactRegion(used, layout.TextWidth, usedWidth, line, rowHeight, RegionAnchor.Left, dpi));
         if (reset is not null && layout.ResetWidth > 0) parts.Children.Add(CompactRegion(reset, layout.ResetWidth, resetWidth, line, rowHeight, RegionAnchor.Left, dpi, layout.Gap));
         parts.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        double span = SnapDown(width, dpi), full = parts.DesiredSize.Width;
-        // The allowance keeps rounding noise from starting a one-pixel scroll.
-        double overflow = Math.Max(0, Math.Ceiling((full - span) * dpi - .01) / dpi);
+        // Same as the water notice: replace the indicator's leftover wanted width so the surface grows around the row
+        // instead of scrolling inside a strip that is still the thin line's length.
+        double full = Math.Ceiling(parts.DesiredSize.Width * dpi - .001) / dpi;
+        NoteAlertWidth(full);
+        double span = SnapDown(width, dpi);
+        // The allowance keeps rounding noise from starting a one-pixel scroll. While the surface is still the indicator,
+        // FitCompactToContent / SetExpanded will widen it to `full` — do not scroll against the leftover strip.
+        double overflow = shape.Style == CompactStyle.Line ? 0 : Math.Max(0, Math.Ceiling((full - span) * dpi - .01) / dpi);
         if (overflow <= 0) { CompactAlert.Children.Add(parts); parts.Tag = AlertRegionTag; return; }
         // The row is laid out in a Canvas, which leaves it its full width; inside a clipping panel the layout clip would move
         // with the translation and cut off the end that scrolls in.
