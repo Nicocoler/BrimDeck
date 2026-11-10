@@ -81,8 +81,8 @@ public sealed class StoSsoLoopback : IDisposable
                 + "<p>请确认单点已为 BrimDeck 登记回调：<code>http://127.0.0.1:" + DefaultPort + "/callback/</code></p>",
                 linked.Token);
             throw new InvalidDataException(Loc.T(
-                "单点回调未带 authorizationCode。请为 systemCode=UI 登记回调地址 http://127.0.0.1:" + DefaultPort + "/callback/ ，或联系单点管理员开通桌面回调。收到：" + raw,
-                "SSO callback had no authorizationCode. Register http://127.0.0.1:" + DefaultPort + "/callback/ for systemCode=UI, or ask SSO admins to enable a desktop returnUrl. Got: " + raw));
+                "单点回调未带 authorizationCode。请为 systemCode=STO-BrimDeck 登记回调地址 http://127.0.0.1:" + DefaultPort + "/callback/ 。收到：" + raw,
+                "SSO callback had no authorizationCode. Register http://127.0.0.1:" + DefaultPort + "/callback/ for systemCode=STO-BrimDeck. Got: " + raw));
         }
         throw new OperationCanceledException(linked.Token);
     }

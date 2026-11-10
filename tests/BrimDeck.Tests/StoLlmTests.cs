@@ -153,7 +153,7 @@ internal static class StoLlmTests
     {
         check("LoginUrl encodes returnUrl and systemCode",
             StoSsoClient.LoginUrl("https://sso.example", "http://127.0.0.1:9/callback/")
-                .Contains("systemCode=UI", StringComparison.Ordinal)
+                .Contains("systemCode=STO-BrimDeck", StringComparison.Ordinal)
             && StoSsoClient.LoginUrl("https://sso.example", "http://127.0.0.1:9/callback/")
                 .Contains(Uri.EscapeDataString("http://127.0.0.1:9/callback/"), StringComparison.Ordinal));
 

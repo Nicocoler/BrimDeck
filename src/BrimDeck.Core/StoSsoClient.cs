@@ -5,8 +5,10 @@ namespace BrimDeck.Core;
 
 public sealed class StoSsoClient(HttpClient http, string? baseUrl = null)
 {
-    public const string DefaultBaseUrl = "https://baseinfo-usercenterserviceapi.sto.cn";
-    public const string SystemCode = "UI";
+    // Test/daily external SSO — matches the environment where STO-BrimDeck was registered.
+    // Production external: https://baseinfo-usercenterserviceapi.sto.cn
+    public const string DefaultBaseUrl = "https://baseinfo-usercenterserviceapi-hq-test.sto.cn";
+    public const string SystemCode = "STO-BrimDeck";
 
     private readonly string _base = (baseUrl ?? DefaultBaseUrl).TrimEnd('/');
 
