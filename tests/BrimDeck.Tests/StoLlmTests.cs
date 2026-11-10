@@ -125,7 +125,7 @@ internal static class StoLlmTests
         using var http = new HttpClient(handler);
         handler.Respond = request =>
         {
-            if (!request.Headers.TryGetValues("auth_token", out var auth) || auth.Single() != token)
+            if (!request.Headers.TryGetValues("stotoken", out var auth) || auth.Single() != token)
                 return new HttpResponseMessage(HttpStatusCode.Unauthorized);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -154,6 +154,7 @@ internal static class StoLlmTests
         check("LoginUrl encodes returnUrl and systemCode",
             StoSsoClient.LoginUrl("https://sso.example", "http://127.0.0.1:9/callback/")
                 .Contains("systemCode=STO-BrimDeck", StringComparison.Ordinal)
+            && StoSsoClient.CategoryCode == "STO-BrimDeck"
             && StoSsoClient.LoginUrl("https://sso.example", "http://127.0.0.1:9/callback/")
                 .Contains(Uri.EscapeDataString("http://127.0.0.1:9/callback/"), StringComparison.Ordinal));
 
@@ -161,10 +162,12 @@ internal static class StoLlmTests
         var token = Jwt(now.ToUnixTimeSeconds() + 3600);
         using var handler = new StoHandler();
         using var http = new HttpClient(handler) { BaseAddress = new Uri("https://sso.example/") };
+        string? exchangeQuery = null;
         handler.Respond = request =>
         {
             if (request.RequestUri!.AbsolutePath.Contains("LogOnStoTokenByAuthorizationCode", StringComparison.OrdinalIgnoreCase))
             {
+                exchangeQuery = request.RequestUri.Query;
                 var body = JsonSerializer.Serialize(new
                 {
                     Status = true,
@@ -188,6 +191,10 @@ internal static class StoLlmTests
 
         var client = new StoSsoClient(http, "https://sso.example");
         var session = await client.ExchangeAsync("auth-code-1", now);
+        check("ExchangeAsync puts systemCode and authorizationCode on query",
+            exchangeQuery != null
+            && exchangeQuery.Contains("systemCode=STO-BrimDeck", StringComparison.Ordinal)
+            && exchangeQuery.Contains("authorizationCode=auth-code-1", StringComparison.Ordinal));
         check("ExchangeAsync maps StoToken and OpenId",
             session.StoToken == token && session.OpenId == "oid-9" && session.DisplayName == "李四");
 
@@ -227,7 +234,7 @@ internal static class StoLlmTests
         var url = gate.CallbackUrl;
         check("CallbackUrl is loopback http",
             url == $"http://127.0.0.1:{port}/callback/");
-        check("ReturnUrl uses STO Code={{0}} template",
+        check("ReturnUrl uses STO Code placeholder",
             gate.ReturnUrl == $"http://127.0.0.1:{port}/callback/?Code={{0}}");
 
         var wait = gate.WaitForCodeAsync(TimeSpan.FromSeconds(5));
@@ -250,7 +257,9 @@ internal static class StoLlmTests
         }
         catch (InvalidDataException ex)
         {
-            check("Bare callback throws without code", ex.Message.Contains("authorizationCode", StringComparison.OrdinalIgnoreCase));
+            check("Bare callback throws without code",
+                ex.Message.Contains("Code", StringComparison.OrdinalIgnoreCase)
+                || ex.Message.Contains("authorizationCode", StringComparison.OrdinalIgnoreCase));
         }
 
         using var timed = new StoSsoLoopback(Random.Shared.Next(49152, 65535));

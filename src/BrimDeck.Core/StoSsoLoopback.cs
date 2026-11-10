@@ -87,8 +87,8 @@ public sealed class StoSsoLoopback : IDisposable
                 + "<p>请确认单点已为 STO-BrimDeck 登记回调：<code>" + HtmlEncode(RegisteredCallback()) + "</code></p>",
                 linked.Token);
             throw new InvalidDataException(Loc.T(
-                "单点回调未带 Code。请登记回调地址 " + RegisteredCallback() + " 。收到：" + raw,
-                "SSO callback had no Code. Register " + RegisteredCallback() + ". Got: " + raw));
+                "单点回调未带 Code。请为 STO-BrimDeck 登记回调地址 " + RegisteredCallback() + " 。收到：" + raw,
+                "SSO callback had no Code. Register " + RegisteredCallback() + " for STO-BrimDeck. Got: " + raw));
         }
         throw new OperationCanceledException(linked.Token);
     }

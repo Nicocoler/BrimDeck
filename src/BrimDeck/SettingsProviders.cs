@@ -537,7 +537,8 @@ public sealed partial class SettingsWindow
                 SaveStatus(Loc.T("申通账号已登录", "Signed in to STO"), false);
             }
             catch (Exception ex) when (ex is TimeoutException or InvalidDataException or HttpRequestException or HttpListenerException
-                or OperationCanceledException or IOException or CryptographicException or System.Text.Json.JsonException)
+                or OperationCanceledException or IOException or CryptographicException or System.Text.Json.JsonException
+                or InvalidOperationException)
             {
                 SaveStatus(ex.Message, true);
             }

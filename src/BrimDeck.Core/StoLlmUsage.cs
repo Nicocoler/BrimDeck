@@ -6,7 +6,6 @@ namespace BrimDeck.Core;
 public static class StoLlmUsage
 {
     public const string ApiUrl = "https://devops-llmgatewayapi.sto.cn/api/llmgateway/user/llmKeysByUser";
-    public const string PortalOrigin = "https://devops-new.sto.cn";
     public static string RequestBody { get; } = """{"pageIndex":1,"pageSize":1,"requestModel":{}}""";
 
     public static ProviderResult ParseResponse(JsonElement root)
@@ -63,12 +62,11 @@ public static class StoLlmUsage
         };
     }
 
+    // STO-BrimDeck tickets succeed with stotoken alone. Sending Origin/Referer as
+    // devops-new.sto.cn makes the gateway return 300203 for non-devops tickets.
     public static Dictionary<string, string> RequestHeaders(string token) => new()
     {
         ["Accept"] = "application/json",
-        ["auth_token"] = token,
         ["stotoken"] = token,
-        ["Origin"] = PortalOrigin,
-        ["Referer"] = PortalOrigin + "/",
     };
 }
