@@ -221,21 +221,37 @@ internal static class StoLlmTests
 
     private static async Task Loopback(Action<string, bool> check)
     {
-        using var gate = new StoSsoLoopback();
+        // Prefer an ephemeral port in tests so a stuck BrimDeck on DefaultPort does not fail CI.
+        int port = Random.Shared.Next(49152, 65535);
+        using var gate = new StoSsoLoopback(port);
         var url = gate.CallbackUrl;
         check("CallbackUrl is loopback http",
-            url.StartsWith("http://127.0.0.1:", StringComparison.Ordinal)
-            && url.Contains("/callback", StringComparison.OrdinalIgnoreCase));
+            url == $"http://127.0.0.1:{port}/callback/");
 
         var wait = gate.WaitForCodeAsync(TimeSpan.FromSeconds(5));
         using var http = new HttpClient();
-        var hit = await http.GetAsync(url.TrimEnd('/') + "/?authorizationCode=abc%20123");
+        var hit = await http.GetAsync(url + "?authorizationCode=abc%20123");
         check("Callback returns success HTML", hit.IsSuccessStatusCode
             && (await hit.Content.ReadAsStringAsync()).Contains("登录", StringComparison.Ordinal));
         var code = await wait;
         check("WaitForCodeAsync returns decoded code", code == "abc 123");
 
-        using var timed = new StoSsoLoopback();
+        using var bare = new StoSsoLoopback(Random.Shared.Next(49152, 65535));
+        var bareWait = bare.WaitForCodeAsync(TimeSpan.FromSeconds(5));
+        var bareHit = await http.GetAsync(bare.CallbackUrl);
+        check("Bare callback is not success", bareHit.StatusCode == HttpStatusCode.BadRequest
+            && (await bareHit.Content.ReadAsStringAsync()).Contains("authorizationCode", StringComparison.Ordinal));
+        try
+        {
+            await bareWait;
+            check("Bare callback throws without code", false);
+        }
+        catch (InvalidDataException ex)
+        {
+            check("Bare callback throws without code", ex.Message.Contains("authorizationCode", StringComparison.OrdinalIgnoreCase));
+        }
+
+        using var timed = new StoSsoLoopback(Random.Shared.Next(49152, 65535));
         try
         {
             await timed.WaitForCodeAsync(TimeSpan.FromMilliseconds(200));
