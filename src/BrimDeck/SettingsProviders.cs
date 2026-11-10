@@ -528,7 +528,7 @@ public sealed partial class SettingsWindow
                 active = new StoSsoLoopback();
                 action.IsEnabled = false;
                 action.Content = Loc.T("等待扫码…", "Waiting for scan…");
-                UI.OpenUrl(StoSsoClient.LoginUrl(StoSsoClient.DefaultBaseUrl, active.CallbackUrl));
+                UI.OpenUrl(StoSsoClient.LoginUrl(StoSsoClient.DefaultBaseUrl, active.ReturnUrl));
                 var code = await active.WaitForCodeAsync(TimeSpan.FromMinutes(3));
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
                 var session = await new StoSsoClient(http).ExchangeAsync(code);

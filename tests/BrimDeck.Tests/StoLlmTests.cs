@@ -227,10 +227,12 @@ internal static class StoLlmTests
         var url = gate.CallbackUrl;
         check("CallbackUrl is loopback http",
             url == $"http://127.0.0.1:{port}/callback/");
+        check("ReturnUrl uses STO Code={{0}} template",
+            gate.ReturnUrl == $"http://127.0.0.1:{port}/callback/?Code={{0}}");
 
         var wait = gate.WaitForCodeAsync(TimeSpan.FromSeconds(5));
         using var http = new HttpClient();
-        var hit = await http.GetAsync(url + "?authorizationCode=abc%20123");
+        var hit = await http.GetAsync(url + "?Code=abc%20123");
         check("Callback returns success HTML", hit.IsSuccessStatusCode
             && (await hit.Content.ReadAsStringAsync()).Contains("登录", StringComparison.Ordinal));
         var code = await wait;

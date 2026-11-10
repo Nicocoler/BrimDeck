@@ -8,9 +8,14 @@ public sealed class StoSsoLoopback : IDisposable
 {
     // Fixed port so SSO admins can register one returnUrl; ephemeral ports never match a registered callback.
     public const int DefaultPort = 38473;
+    // STO user-center substitutes {0} with the temporary authorization code (same pattern as SITE's LoginByCode?Code={0}).
+    public static string RegisteredCallback(int port = DefaultPort) => $"http://127.0.0.1:{port}/callback/?Code={{0}}";
+
     private readonly HttpListener _listener = new();
     private readonly CancellationTokenSource _cts = new();
+    // Listener prefix (no query). Use ReturnUrl when opening SSO / registering the subsystem.
     public string CallbackUrl { get; }
+    public string ReturnUrl { get; }
 
     public StoSsoLoopback(int? port = null)
     {
@@ -24,6 +29,7 @@ public sealed class StoSsoLoopback : IDisposable
                 _listener.Prefixes.Add(prefix);
                 _listener.Start();
                 CallbackUrl = prefix;
+                ReturnUrl = RegisteredCallback(candidate);
                 return;
             }
             catch (Exception ex) when (ex is HttpListenerException or ArgumentException)
@@ -78,11 +84,11 @@ public sealed class StoSsoLoopback : IDisposable
                 + "<p>No authorization code was returned.</p>"
                 + "<p style=\"font:12px Consolas,monospace;word-break:break-all\">" + HtmlEncode(raw) + "</p>"
                 + "<p style=\"font:12px Consolas,monospace\">" + HtmlEncode(keys) + "</p>"
-                + "<p>请确认单点已为 BrimDeck 登记回调：<code>http://127.0.0.1:" + DefaultPort + "/callback/</code></p>",
+                + "<p>请确认单点已为 STO-BrimDeck 登记回调：<code>" + HtmlEncode(RegisteredCallback()) + "</code></p>",
                 linked.Token);
             throw new InvalidDataException(Loc.T(
-                "单点回调未带 authorizationCode。请为 systemCode=STO-BrimDeck 登记回调地址 http://127.0.0.1:" + DefaultPort + "/callback/ 。收到：" + raw,
-                "SSO callback had no authorizationCode. Register http://127.0.0.1:" + DefaultPort + "/callback/ for systemCode=STO-BrimDeck. Got: " + raw));
+                "单点回调未带 Code。请登记回调地址 " + RegisteredCallback() + " 。收到：" + raw,
+                "SSO callback had no Code. Register " + RegisteredCallback() + ". Got: " + raw));
         }
         throw new OperationCanceledException(linked.Token);
     }
@@ -90,14 +96,15 @@ public sealed class StoSsoLoopback : IDisposable
     internal static string? ReadAuthorizationCode(HttpListenerRequest request)
     {
         var query = request.QueryString;
-        foreach (var key in new[] { "authorizationCode", "AuthorizationCode", "code", "authCode", "token", "ticket" })
+        // STO templates use Code={0}; OAuth-style flows may use authorizationCode / code.
+        foreach (var key in new[] { "Code", "code", "authorizationCode", "AuthorizationCode", "authCode", "token", "ticket" })
         {
             var value = query[key];
-            if (!string.IsNullOrWhiteSpace(value)) return value;
+            if (!string.IsNullOrWhiteSpace(value) && value != "{0}") return value;
         }
-        // Some gateways append "callback/&authorizationCode=" when returnUrl had no "?".
+        // Some gateways append "callback/&Code=" when returnUrl had no "?".
         var raw = request.Url?.Query ?? request.RawUrl ?? "";
-        foreach (var key in new[] { "authorizationCode", "code", "authCode" })
+        foreach (var key in new[] { "Code", "code", "authorizationCode", "authCode" })
         {
             var marker = key + "=";
             int at = raw.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
