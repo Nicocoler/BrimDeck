@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.IO;
+using System.Net;
+using System.Net.Http;
 using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Automation;
@@ -318,6 +320,12 @@ public sealed partial class SettingsWindow
             Hint();
         }
 
+        bool dirty = false;
+        Action SaveSecret = () => { };
+        if (entry.QuotaSource == ProviderId.StoLlm)
+            StoLlmSignInDetails(entry, Line, InvalidateTest);
+        else
+        {
         var password = new PasswordBox { FontSize = 12.5, MaxLength = 4096, Padding = new Thickness(0), BorderThickness = new Thickness(0),
             Background = Brushes.Transparent, Foreground = UI.Brush(TextPrimary), CaretBrush = UI.Brush(_palette.Accent),
             VerticalAlignment = VerticalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
@@ -331,7 +339,6 @@ public sealed partial class SettingsWindow
             ProviderId.OpenCodeGo => Loc.T("OpenCode Console API 密钥（oc_sk_…），加密保存在本机", "OpenCode Console API key (oc_sk_…), stored encrypted on this PC"),
             ProviderId.OpenRouter => Loc.T("OpenRouter API 密钥（sk-or-v1-…），加密保存在本机", "OpenRouter API key (sk-or-v1-…), stored encrypted on this PC"),
             ProviderId.Custom => Loc.T("可选，加密保存在本机", "Optional, stored encrypted on this PC"),
-            ProviderId.StoLlm => Loc.T("可选；留空则使用 sto-watt / dms-proxy 的 DevOps 登录", "Optional; leave empty to use sto-watt / dms-proxy DevOps sign-in"),
             _ => Loc.T("填写 API 密钥，加密保存在本机", "Enter the API key; it is stored encrypted on this PC")
         };
         string savedHint = Loc.T("已加密保存在本机，输入新密钥以更换", "Stored encrypted on this PC. Enter a new key to replace it");
@@ -340,7 +347,7 @@ public sealed partial class SettingsWindow
         // The icon shows the current state: struck through while the key is dots, open while it is plain text.
         const string eye = "M 1,6 C 3.5,0.5 12.5,0.5 15,6 C 12.5,11.5 3.5,11.5 1,6 Z M 8,4 A 2,2 0 1 1 8,8 A 2,2 0 1 1 8,4 Z";
         const string eyeOff = eye + " M 2.5,0.5 L 13.5,11.5";
-        bool syncing = false, dirty = false, swapping = false;
+        bool syncing = false, swapping = false;
         Button? reveal = null;
         reveal = GlyphButton(eyeOff, 16, 12, Loc.T("显示密钥", "Show key"), () => ToggleReveal());
         reveal.Width = 28; reveal.Height = 28; reveal.Focusable = false; reveal.ToolTip = null; ((Shape)reveal.Content).StrokeThickness = 1.2;
@@ -352,7 +359,7 @@ public sealed partial class SettingsWindow
             dirty = true; keyHint.Visibility = value.Length == 0 ? Visibility.Visible : Visibility.Collapsed; InvalidateTest();
         }
         password.PasswordChanged += (_, _) => EditSecret(password.Password, true); visible.TextChanged += (_, _) => EditSecret(visible.Text, false);
-        void SaveSecret()
+        SaveSecret = () =>
         {
             if (!dirty || S.Entry(entry.InstanceId) is null) return;
             try
@@ -367,7 +374,7 @@ public sealed partial class SettingsWindow
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or System.Text.Json.JsonException)
             { SaveStatus(Loc.T("密钥保存失败，请检查本机设置目录。", "The key could not be saved. Check the local settings folder."), true); }
-        }
+        };
         // Swapping the dots for plain text hides the box being typed in; that is not leaving the field, so nothing is saved.
         void ToggleReveal()
         {
@@ -407,10 +414,10 @@ public sealed partial class SettingsWindow
         visible.LostKeyboardFocus += (_, _) => { if (!swapping) SaveSecret(); };
         Line(entry.QuotaSource switch
         {
-            ProviderId.StoLlm => Loc.T("DevOps Token（可选）", "DevOps token (optional)"),
             ProviderId.Custom => Loc.T("API 密钥（可选）", "API key (optional)"),
             _ => Loc.T("API 密钥", "API key")
         }, Field(inputs, keyHint, reveal));
+        }
 
         if (entry.QuotaSource == ProviderId.Custom)
         {
@@ -460,6 +467,93 @@ public sealed partial class SettingsWindow
         Line("", test);
         Line("", result);
         return grid;
+    }
+
+    private void StoLlmSignInDetails(AppEntry entry, Func<string, FrameworkElement, int, TextBlock?> line, Action invalidate)
+    {
+        var status = TextLine("", 12.5, TextPrimary);
+        status.VerticalAlignment = VerticalAlignment.Center;
+        var action = ActionButton(Loc.T("登录申通账号", "Sign in with STO"), () => { });
+        action.Style = (Style)FindResource("SettingsOutlineButton");
+        action.HorizontalAlignment = HorizontalAlignment.Left;
+        AutomationProperties.SetAutomationId(action, "sto-llm-auth-" + entry.InstanceId.ToString("N"));
+
+        void Refresh()
+        {
+            var current = S.Entry(entry.InstanceId);
+            bool signedIn = current?.SecretRevision != Guid.Empty;
+            string display = "";
+            if (signedIn)
+            {
+                try
+                {
+                    var raw = _app.Secrets.Read(entry.InstanceId);
+                    display = StoLlmSession.TryRead(raw)?.DisplayName ?? "";
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or FormatException or System.Text.Json.JsonException) { }
+            }
+            status.Text = signedIn
+                ? (display.Length > 0 ? Loc.T("已登录：" + display, "Signed in: " + display) : Loc.T("已登录", "Signed in"))
+                : Loc.T("扫码登录后读取大模型配额", "Scan to sign in and read LLM quota");
+            action.Content = signedIn ? Loc.T("退出登录", "Sign out") : Loc.T("登录申通账号", "Sign in with STO");
+            AutomationProperties.SetName(action, (string)action.Content);
+        }
+
+        StoSsoLoopback? active = null;
+        action.Click += async (_, _) =>
+        {
+            var current = S.Entry(entry.InstanceId);
+            if (current is null) return;
+            if (current.SecretRevision != Guid.Empty)
+            {
+                string openId = "";
+                try { openId = StoLlmSession.TryRead(_app.Secrets.Read(entry.InstanceId))?.OpenId ?? ""; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or FormatException or System.Text.Json.JsonException) { }
+                try
+                {
+                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                    await new StoSsoClient(http).SignOutAsync(openId);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { }
+                _app.Secrets.Delete(entry.InstanceId);
+                Change(s => s.Entry(entry.InstanceId)!.SecretRevision = Guid.Empty);
+                Refresh();
+                invalidate();
+                return;
+            }
+
+            active?.Dispose();
+            try
+            {
+                active = new StoSsoLoopback();
+                action.IsEnabled = false;
+                action.Content = Loc.T("等待扫码…", "Waiting for scan…");
+                UI.OpenUrl(StoSsoClient.LoginUrl(StoSsoClient.DefaultBaseUrl, active.CallbackUrl));
+                var code = await active.WaitForCodeAsync(TimeSpan.FromMinutes(3));
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                var session = await new StoSsoClient(http).ExchangeAsync(code);
+                _app.Secrets.Write(entry.InstanceId, StoLlmSession.Serialize(session));
+                Change(s => s.Entry(entry.InstanceId)!.SecretRevision = Guid.NewGuid());
+                SaveStatus(Loc.T("申通账号已登录", "Signed in to STO"), false);
+            }
+            catch (Exception ex) when (ex is TimeoutException or InvalidDataException or HttpRequestException or HttpListenerException
+                or OperationCanceledException or IOException or CryptographicException or System.Text.Json.JsonException)
+            {
+                SaveStatus(ex.Message, true);
+            }
+            finally
+            {
+                active?.Dispose();
+                active = null;
+                action.IsEnabled = true;
+                Refresh();
+                invalidate();
+            }
+        };
+
+        Refresh();
+        line(Loc.T("申通账号", "STO account"), status, 5);
+        line("", action, 5);
     }
 
     // Every row's expanded area ends with its off-peak time: daily periods, each dragged out on a bar from noon to noon,

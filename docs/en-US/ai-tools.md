@@ -26,7 +26,7 @@ The same tool can appear in several columns. It is read only once, and totals ar
 | OpenCode Go | ✓ | | Enter an OpenCode Console API key in settings |
 | OpenRouter | ✓ | | Enter an OpenRouter API key in settings |
 | New API, Sub2API relay sites | ✓ | | Enter the site address and key in settings |
-| STO LLM | ✓ | | sto-watt signed in to devops-new.sto.cn, or a DevOps token pasted in settings |
+| STO LLM | ✓ | | Sign in with your STO account in Settings |
 | Custom | ✓ | | Write a short JavaScript script |
 
 Sources you enter by hand and Grok Bot have no local usage records; choose another tool as the usage app for Today and Week.

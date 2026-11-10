@@ -45,8 +45,8 @@ public static class ProviderCatalog
         ProviderId.OpenCodeGo => Loc.T("API 密钥所属工作区的 OpenCode Go 额度", "The OpenCode Go allowance of the workspace the API key belongs to"),
         ProviderId.OpenRouter => Loc.T("API 密钥所属账户的余额，以及这个密钥的限额与消费", "The balance of the account the API key belongs to, and the limit and spending of this key"),
         ProviderId.StoLlm => Loc.T(
-            "读取申通大模型网关的月度配额与调用次数；优先使用本机 sto-watt / dms-proxy 的 DevOps 登录，也可粘贴 token。不含本机 Token 用量统计",
-            "Monthly quota and call counts from the STO LLM gateway; uses sto-watt / dms-proxy DevOps sign-in, or a pasted token. No local token usage stats"),
+            "读取申通大模型网关的月度配额与调用次数；在设置中扫码登录申通账号。不含本机 Token 用量统计",
+            "Monthly quota and call counts from the STO LLM gateway; sign in with your STO account in Settings. No local token usage stats"),
         _ => ""
     };
     public static string QuotaTip(ProviderId id) => Loc.T("配额来源：", "Quota source: ") + Name(id) + (QuotaDescription(id) is { Length: > 0 } text ? "\n" + text : "");

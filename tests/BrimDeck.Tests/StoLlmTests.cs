@@ -11,6 +11,9 @@ internal static class StoLlmTests
         Mapping(check);
         Catalog(check);
         await Fetch(check);
+        await Sso(check);
+        if (OperatingSystem.IsWindows()) await Loopback(check);
+        else check("Loopback skipped off Windows", true);
     }
 
     private static string Jwt(long expUnix)
@@ -144,6 +147,104 @@ internal static class StoLlmTests
             && (missing.Snapshot.StatusLabel.Contains("未")
                 || missing.Snapshot.StatusLabel.Contains("Not")
                 || missing.Snapshot.StatusLabel.Contains("登录")));
+    }
+
+    private static async Task Sso(Action<string, bool> check)
+    {
+        check("LoginUrl encodes returnUrl and systemCode",
+            StoSsoClient.LoginUrl("https://sso.example", "http://127.0.0.1:9/callback/")
+                .Contains("systemCode=UI", StringComparison.Ordinal)
+            && StoSsoClient.LoginUrl("https://sso.example", "http://127.0.0.1:9/callback/")
+                .Contains(Uri.EscapeDataString("http://127.0.0.1:9/callback/"), StringComparison.Ordinal));
+
+        var now = DateTimeOffset.Parse("2026-11-09T08:00:00Z");
+        var token = Jwt(now.ToUnixTimeSeconds() + 3600);
+        using var handler = new StoHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://sso.example/") };
+        handler.Respond = request =>
+        {
+            if (request.RequestUri!.AbsolutePath.Contains("LogOnStoTokenByAuthorizationCode", StringComparison.OrdinalIgnoreCase))
+            {
+                var body = JsonSerializer.Serialize(new
+                {
+                    Status = true,
+                    StatusCode = "OK",
+                    StatusMessage = "成功",
+                    StoToken = token,
+                    UserInfo = new { OpenId = "oid-9", RealName = "李四", UserName = "u1" }
+                });
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body, Encoding.UTF8, "application/json")
+                };
+            }
+            if (request.RequestUri.AbsolutePath.Contains("signOut", StringComparison.OrdinalIgnoreCase))
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"Status":true,"StatusCode":"200","StatusMessage":"成功"}""", Encoding.UTF8, "application/json")
+                };
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        };
+
+        var client = new StoSsoClient(http, "https://sso.example");
+        var session = await client.ExchangeAsync("auth-code-1", now);
+        check("ExchangeAsync maps StoToken and OpenId",
+            session.StoToken == token && session.OpenId == "oid-9" && session.DisplayName == "李四");
+
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"Status":false,"StatusCode":"9","StatusMessage":"code无效"}""", Encoding.UTF8, "application/json")
+        };
+        try
+        {
+            await client.ExchangeAsync("bad", now);
+            check("ExchangeAsync throws on Status false", false);
+        }
+        catch (InvalidDataException ex)
+        {
+            check("ExchangeAsync throws on Status false", ex.Message.Contains("code无效") || ex.Message.Length > 0);
+        }
+
+        bool signOutOk = false;
+        handler.Respond = request =>
+        {
+            signOutOk = request.RequestUri!.ToString().Contains("signOut", StringComparison.OrdinalIgnoreCase)
+                && request.RequestUri.Query.Contains("openId=oid-9", StringComparison.Ordinal);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"Status":true}""", Encoding.UTF8, "application/json")
+            };
+        };
+        await client.SignOutAsync("oid-9");
+        check("SignOut hits signOut with openId", signOutOk);
+    }
+
+    private static async Task Loopback(Action<string, bool> check)
+    {
+        using var gate = new StoSsoLoopback();
+        var url = gate.CallbackUrl;
+        check("CallbackUrl is loopback http",
+            url.StartsWith("http://127.0.0.1:", StringComparison.Ordinal)
+            && url.Contains("/callback", StringComparison.OrdinalIgnoreCase));
+
+        var wait = gate.WaitForCodeAsync(TimeSpan.FromSeconds(5));
+        using var http = new HttpClient();
+        var hit = await http.GetAsync(url.TrimEnd('/') + "/?authorizationCode=abc%20123");
+        check("Callback returns success HTML", hit.IsSuccessStatusCode
+            && (await hit.Content.ReadAsStringAsync()).Contains("登录", StringComparison.Ordinal));
+        var code = await wait;
+        check("WaitForCodeAsync returns decoded code", code == "abc 123");
+
+        using var timed = new StoSsoLoopback();
+        try
+        {
+            await timed.WaitForCodeAsync(TimeSpan.FromMilliseconds(200));
+            check("WaitForCodeAsync times out", false);
+        }
+        catch (TimeoutException)
+        {
+            check("WaitForCodeAsync times out", true);
+        }
     }
 
     private sealed class MemorySecrets : IProviderSecrets
