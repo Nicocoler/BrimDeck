@@ -49,6 +49,14 @@ internal static class StoLlmTests
             StoLlmAuth.ResolveToken("", now) is null && StoLlmAuth.ResolveToken("{}", now) is null);
         check("TryReadSession round-trips display fields",
             StoLlmSession.TryRead(json) is { OpenId: "openid-1", DisplayName: "张三" });
+
+        check("State: empty is None, valid session is Valid, expired session is Expired",
+            StoLlmAuth.State("", now) == StoLlmAuthState.None
+            && StoLlmAuth.State(json, now) == StoLlmAuthState.Valid
+            && StoLlmAuth.State(StoLlmSession.Serialize(session with { StoToken = Jwt(now.ToUnixTimeSeconds() - 10) }), now) == StoLlmAuthState.Expired);
+        check("State: legacy bare JWT valid vs expired",
+            StoLlmAuth.State(valid, now) == StoLlmAuthState.Valid
+            && StoLlmAuth.State(Jwt(now.ToUnixTimeSeconds() - 10), now) == StoLlmAuthState.Expired);
     }
 
     private static void Mapping(Action<string, bool> check)
@@ -147,6 +155,20 @@ internal static class StoLlmTests
             && (missing.Snapshot.StatusLabel.Contains("未")
                 || missing.Snapshot.StatusLabel.Contains("Not")
                 || missing.Snapshot.StatusLabel.Contains("登录")));
+
+        // Same secret, clock advanced past JWT exp: last-good must be dropped (overnight expiry).
+        var clock = now;
+        using var ageing = new ConfiguredProviders(secrets, http, () => clock);
+        var ageingEntry = new AppEntry { QuotaSource = ProviderId.StoLlm, SecretRevision = Guid.NewGuid() };
+        secrets.Write(ageingEntry.InstanceId, StoLlmSession.Serialize(new StoLlmSession(token, "oid", "u", now)));
+        var connected = await ageing.TestAsync(ageingEntry);
+        check("Warm last-good before JWT ages out", connected.Snapshot.LiveQuota && connected.Snapshot.Metrics.Count > 0);
+        clock = now.AddHours(2);
+        var aged = await ageing.TestAsync(ageingEntry);
+        check("Aged StoLlm discards kept quotas and reports sign-in expired",
+            !aged.Snapshot.LiveQuota && !aged.Snapshot.IsStale && aged.Snapshot.Metrics.Count == 0
+            && (aged.Snapshot.StatusLabel.Contains("过期") || aged.Snapshot.StatusLabel.Contains("expired")
+                || aged.Snapshot.StatusLabel.Contains("Expired")));
     }
 
     private static async Task Sso(Action<string, bool> check)

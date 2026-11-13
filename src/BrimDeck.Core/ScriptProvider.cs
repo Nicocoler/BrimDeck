@@ -17,6 +17,8 @@ public interface IProviderSecrets
 internal sealed class ProviderReadException(string label, string message) : Exception(message)
 {
     public string Label { get; } = label;
+    // Auth failures (unsigned / expired): drop the last good reading so the panel does not keep stale quotas overnight.
+    public bool DiscardCache { get; init; }
 }
 
 public sealed record ProviderTestResult(ProviderSnapshot Snapshot, double Seconds, IReadOnlyList<string> Logs);
@@ -225,11 +227,18 @@ internal sealed class ScriptSession(HttpClient http, AppEntry entry, string secr
     {
         string t(string zh, string en) => Loc.T(zh, en);
         var nowUtc = now.ToUniversalTime();
+        var auth = StoLlmAuth.State(secret, nowUtc);
+        if (auth == StoLlmAuthState.None)
+            throw new ProviderReadException(
+                t("未登录", "Not signed in"),
+                t("请在设置中登录申通账号。", "Sign in with your STO account in Settings."))
+            { DiscardCache = true };
         var token = StoLlmAuth.ResolveToken(secret, nowUtc);
         if (token is null)
             throw new ProviderReadException(
-                t("未登录", "Not signed in"),
-                t("请在设置中登录申通账号。", "Sign in with your STO account in Settings."));
+                t("登录过期", "Sign-in expired"),
+                t("请在设置中重新登录申通账号。", "Sign in again with your STO account in Settings."))
+            { DiscardCache = true };
 
         async Task<(int Status, string Body)> Post(string jwt)
         {
@@ -246,7 +255,8 @@ internal sealed class ScriptSession(HttpClient http, AppEntry entry, string secr
         var response = await Post(token);
         if (response.Status == 401)
             throw new ProviderReadException(t("登录过期", "Sign-in expired"),
-                t("请在设置中重新登录申通账号。", "Sign in again with your STO account in Settings."));
+                t("请在设置中重新登录申通账号。", "Sign in again with your STO account in Settings."))
+            { DiscardCache = true };
         if (response.Status is < 200 or >= 300) throw new HttpRequestException("HTTP " + response.Status);
         using var doc = JsonDocument.Parse(response.Body);
         return StoLlmUsage.ParseResponse(doc.RootElement);
@@ -366,8 +376,10 @@ public sealed class ConfiguredProviders : IDisposable
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                 catch (Exception ex)
                 {
-                    if (_lastGood.TryGetValue(requestKey, out var previous)) snapshot = Clone(previous);
-                    snapshot.Configurations = [entry.ConfigurationKey]; snapshot.LiveQuota = false; snapshot.IsStale = snapshot.Metrics.Count > 0;
+                    bool discard = ex is ProviderReadException { DiscardCache: true };
+                    if (!discard && _lastGood.TryGetValue(requestKey, out var previous)) snapshot = Clone(previous);
+                    if (discard) { _lastGood.TryRemove(requestKey, out _); snapshot.Metrics = []; snapshot.Plan = ""; snapshot.QuotaTime = null; }
+                    snapshot.Configurations = [entry.ConfigurationKey]; snapshot.LiveQuota = false; snapshot.IsStale = !discard && snapshot.Metrics.Count > 0;
                     var code = session.FailureStatus;
                     snapshot.StatusLabel = ex is ProviderReadException read ? read.Label : code switch
                     { 401 => Loc.T("密钥无效", "Invalid key"), 403 => Loc.T("访问受限", "Access denied"), 429 => Loc.T("请求频繁", "Too many requests"), >= 400 => Loc.T("读取失败", "Read failed"),

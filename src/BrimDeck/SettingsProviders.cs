@@ -478,24 +478,40 @@ public sealed partial class SettingsWindow
         action.HorizontalAlignment = HorizontalAlignment.Left;
         AutomationProperties.SetAutomationId(action, "sto-llm-auth-" + entry.InstanceId.ToString("N"));
 
-        void Refresh()
+        string ReadSecret()
+        {
+            try { return _app.Secrets.Read(entry.InstanceId); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or FormatException or System.Text.Json.JsonException)
+            { return ""; }
+        }
+
+        StoLlmAuthState AuthState()
         {
             var current = S.Entry(entry.InstanceId);
-            bool signedIn = current?.SecretRevision != Guid.Empty;
-            string display = "";
-            if (signedIn)
+            if (current is null || current.SecretRevision == Guid.Empty) return StoLlmAuthState.None;
+            return StoLlmAuth.State(ReadSecret());
+        }
+
+        void Refresh()
+        {
+            var state = AuthState();
+            string display = StoLlmSession.TryRead(ReadSecret())?.DisplayName ?? "";
+            status.Text = state switch
             {
-                try
-                {
-                    var raw = _app.Secrets.Read(entry.InstanceId);
-                    display = StoLlmSession.TryRead(raw)?.DisplayName ?? "";
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or FormatException or System.Text.Json.JsonException) { }
-            }
-            status.Text = signedIn
-                ? (display.Length > 0 ? Loc.T("已登录：" + display, "Signed in: " + display) : Loc.T("已登录", "Signed in"))
-                : Loc.T("扫码登录后读取大模型配额", "Scan to sign in and read LLM quota");
-            action.Content = signedIn ? Loc.T("退出登录", "Sign out") : Loc.T("登录申通账号", "Sign in with STO");
+                StoLlmAuthState.Valid => display.Length > 0
+                    ? Loc.T("已登录：" + display, "Signed in: " + display)
+                    : Loc.T("已登录", "Signed in"),
+                StoLlmAuthState.Expired => display.Length > 0
+                    ? Loc.T("登录已过期：" + display, "Sign-in expired: " + display)
+                    : Loc.T("登录已过期，请重新登录", "Sign-in expired; sign in again"),
+                _ => Loc.T("扫码登录后读取大模型配额", "Scan to sign in and read LLM quota")
+            };
+            action.Content = state switch
+            {
+                StoLlmAuthState.Valid => Loc.T("退出登录", "Sign out"),
+                StoLlmAuthState.Expired => Loc.T("重新登录", "Sign in again"),
+                _ => Loc.T("登录申通账号", "Sign in with STO")
+            };
             AutomationProperties.SetName(action, (string)action.Content);
         }
 
@@ -504,11 +520,11 @@ public sealed partial class SettingsWindow
         {
             var current = S.Entry(entry.InstanceId);
             if (current is null) return;
-            if (current.SecretRevision != Guid.Empty)
+            var state = AuthState();
+            // Only a still-valid session signs out; expired and unsigned both start SSO (expired overwrites the secret).
+            if (state == StoLlmAuthState.Valid)
             {
-                string openId = "";
-                try { openId = StoLlmSession.TryRead(_app.Secrets.Read(entry.InstanceId))?.OpenId ?? ""; }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or FormatException or System.Text.Json.JsonException) { }
+                string openId = StoLlmSession.TryRead(ReadSecret())?.OpenId ?? "";
                 try
                 {
                     using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };

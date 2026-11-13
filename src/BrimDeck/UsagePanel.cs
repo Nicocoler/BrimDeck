@@ -339,8 +339,23 @@ public partial class MainWindow
     {
         // Waiting for its first reading, the column shows its quotas' places in the same layout (SkeletonBlock), so the readings
         // fill in where they will stay instead of the whole column changing when they arrive.
-        bool awaiting = Awaiting(snapshot);
-        int blocks = awaiting ? view.Slots : view.Quotas.Count;
+        // Sto LLM with an expired local JWT must not keep showing last night's quotas: force the empty sign-in column.
+        StoLlmAuthState StoAuth()
+        {
+            if (entry.QuotaSource != ProviderId.StoLlm) return StoLlmAuthState.None;
+            if (entry.SecretRevision == Guid.Empty) return StoLlmAuthState.None;
+            try { return StoLlmAuth.State(_app.Secrets.Read(entry.InstanceId)); }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException
+                or FormatException or System.Text.Json.JsonException)
+            { return StoLlmAuthState.None; }
+        }
+        var stoAuth = StoAuth();
+        bool stoNeedsSignIn = entry.QuotaSource == ProviderId.StoLlm
+            && (entry.SecretRevision == Guid.Empty || stoAuth == StoLlmAuthState.Expired
+                || snapshot.StatusLabel == Loc.T("未登录", "Not signed in")
+                || snapshot.StatusLabel == Loc.T("登录过期", "Sign-in expired"));
+        bool awaiting = !stoNeedsSignIn && Awaiting(snapshot);
+        int blocks = awaiting ? view.Slots : stoNeedsSignIn ? 0 : view.Quotas.Count;
         FrameworkElement Block(int i) => awaiting ? SkeletonBlock(entry, layout, i) : QuotaBlock(entry, view.Quotas[i], layout, i);
         bool off = blocks == 0;
         // Only this column changes: it comes up from faint while the others stay as they are.
@@ -380,24 +395,40 @@ public partial class MainWindow
         {
             // No readings: what the state is, why, and a way to sync now, centered in the column. Left-aligned, the button's text sat
             // inside its outline and padding, so it looked further right than the lines above it.
+            // Sto LLM needs an SSO session before any quota read: without one (or after it expires) the column sends the user to
+            // the quotas settings page instead of syncing into the same empty state.
+            string unsignedLabel = Loc.T("未登录", "Not signed in"), expiredLabel = Loc.T("登录过期", "Sign-in expired");
+            bool unsigned = entry.QuotaSource == ProviderId.StoLlm && entry.SecretRevision == Guid.Empty;
+            bool expired = stoNeedsSignIn && !unsigned;
+            string statusLabel = unsigned ? unsignedLabel : expired ? expiredLabel : snapshot.StatusLabel;
+            string statusText = unsigned
+                ? Loc.T("请在设置中登录申通账号。", "Sign in with your STO account in Settings.")
+                : expired
+                    ? Loc.T("请在设置中重新登录申通账号。", "Sign in again with your STO account in Settings.")
+                    : snapshot.Status;
             var status = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            var label = UI.Fixed(snapshot.StatusLabel, Math.Max(11, layout.Label + 1), Math.Ceiling(layout.Label * 1.5), UI.Secondary, FontWeights.SemiBold);
-            label.TextAlignment = TextAlignment.Center; label.ToolTip = snapshot.Status;
+            var label = UI.Fixed(statusLabel, Math.Max(11, layout.Label + 1), Math.Ceiling(layout.Label * 1.5), UI.Secondary, FontWeights.SemiBold);
+            label.TextAlignment = TextAlignment.Center; label.ToolTip = statusText;
             status.Children.Add(label);
             // The detail is dropped when it only repeats the label, and when the column is too short for it (the smallest panel):
             // the label and the button stay, the full text is in the label's tip.
             TextBlock? detail = null;
-            if (snapshot.Status != snapshot.StatusLabel)
+            if (statusText != statusLabel)
             {
-                detail = UI.Text(snapshot.Status, Math.Max(10, layout.Reset), UI.Tertiary);
+                detail = UI.Text(statusText, Math.Max(10, layout.Reset), UI.Tertiary);
                 detail.FontFamily = UI.PanelFont; detail.Margin = new Thickness(0, 3, 0, 0); detail.TextWrapping = TextWrapping.Wrap;
                 detail.TextAlignment = TextAlignment.Center;
                 status.Children.Add(detail);
             }
+            string action = stoNeedsSignIn
+                ? (expired ? Loc.T("重新登录", "Sign in again") : Loc.T("去登录", "Sign in"))
+                : Loc.T("立即同步", "Sync now");
             var sync = new Button { Style = (Style)FindResource("PanelOutlineButton"), FontFamily = UI.TextFont, Padding = new Thickness(10, 2, 10, 2), Height = 24,
-                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0), Content = Loc.T("立即同步", "Sync now") };
-            AutomationProperties.SetName(sync, Loc.T("立即同步用量", "Sync usage now"));
-            sync.Click += (_, _) => _ = RefreshAsync();
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0), Content = action };
+            AutomationProperties.SetName(sync, stoNeedsSignIn
+                ? Loc.T("打开设置登录申通账号", "Open settings to sign in with STO")
+                : Loc.T("立即同步用量", "Sync usage now"));
+            sync.Click += (_, _) => { if (stoNeedsSignIn) _app.OpenQuotaSettings(); else _ = RefreshAsync(); };
             status.Children.Add(sync);
             var holder = new Grid { VerticalAlignment = VerticalAlignment.Stretch };
             holder.Children.Add(status);

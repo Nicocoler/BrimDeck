@@ -152,6 +152,12 @@ public partial class App : Application
         Resources["UnpinSourceName"] = Loc.T("取消固定", "Unpin");
     }
     public void OpenSettings() => ShowSettings(false);
+    // The empty Sto LLM column's sign-in button opens the quotas page, where the STO SSO control lives.
+    public void OpenQuotaSettings()
+    {
+        ShowSettings(false);
+        _settingsWindow?.ShowPage(3);
+    }
     // Starting BrimDeck while it runs shows the hidden panels as well as the settings, so the panels come back even without
     // the tray icon.
     private void ShowFromRelaunch()
