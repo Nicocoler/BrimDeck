@@ -8,8 +8,8 @@ namespace BrimDeck;
 
 public sealed partial class SettingsWindow
 {
-    // After the enhanced-sensors page; listed in its own "Reminders" navigation group.
-    internal const int WaterReminderPage = 11;
+    // After upstream's quick-actions page (MusicGesturesPage = 15); listed in its own "Reminders" navigation group.
+    internal const int WaterReminderPage = 16;
 
     private void WaterReminderSettings()
     {
